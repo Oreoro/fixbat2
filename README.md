@@ -247,7 +247,9 @@ curl -X POST "$URL/ingest" -H "authorization: Bearer $INGEST_TOKEN" \
         "stackTrace":"...","occurredAt":"2026-09-02T10:00:00Z"}]'
 ```
 
-Up to 100 events per request. `INGEST_TOKEN` is deliberately **not** the admin
+Up to 100 events per request. Events are kept for seven days after they are
+consumed, so a recent window can be replayed by hand, then cleared — the table
+does not grow without bound. `INGEST_TOKEN` is deliberately **not** the admin
 token: it is distributed to every application that reports errors, so it must
 not also grant administration. Events are buffered and drained on the next run,
 so nothing at the edge calls the model or costs money.
@@ -399,7 +401,9 @@ curl -X POST "$URL/admin/settings" -H "authorization: Bearer $ADMIN_TOKEN" \
 ```
 
 The cron runs every 5 minutes. Cost is roughly $0.10 per brief on Opus 5, so the
-default limit of 50 bounds spend at about $5/day.
+default limit of 50 bounds spend at about $5/day. The cap is counted live
+against the day's briefs rather than from a figure taken when a run starts, so
+a manual ingest overlapping the cron cannot spend it twice.
 
 ---
 
@@ -410,7 +414,7 @@ npm run dev      # in one shell
 npm test         # in another
 ```
 
-182 checks over eight suites, all against a real server — no mocks.
+190 checks over eight suites, all against a real server — no mocks.
 
 `test/audit.py` walks the whole product from an empty deployment — claim, demo,
 triage, dedupe, Slack, resolution, guardrails, security headers, audit trail.

@@ -57,7 +57,6 @@ export async function run(deps: Deps): Promise<RunSummary> {
     return summary;
   }
 
-  let budget = settings.daily_brief_limit - (await db.briefsToday(env.DB));
 
   // Read from where we left off. A throw here leaves the cursor untouched, so
   // the window is retried rather than silently skipped.
@@ -89,14 +88,11 @@ export async function run(deps: Deps): Promise<RunSummary> {
 
   for (const event of events) {
     try {
-      const outcome = await handle(deps, event, budget);
+      const outcome = await handle(deps, event, settings.daily_brief_limit);
       if (outcome.kind === "deduped") summary.deduped++;
       else if (outcome.kind === "unmapped") summary.unmapped++;
       else if (outcome.kind === "capped") summary.capped++;
-      else {
-        summary.briefed++;
-        if (outcome.diagnosed) budget--;
-      }
+      else summary.briefed++;
       if (outcome.incident) summary.incidents.push(outcome.incident);
     } catch (error) {
       summary.failed++;
@@ -116,13 +112,10 @@ export async function run(deps: Deps): Promise<RunSummary> {
 
 type Outcome = {
   kind: "briefed" | "deduped" | "unmapped" | "capped";
-  /** Set only when a model call was actually made, so the caller charges the
-   *  daily budget for spend rather than for delivery. */
-  diagnosed?: boolean;
   incident?: { id: string; service: string; status: string; occurrences: number };
 };
 
-async function handle(deps: Deps, event: LogEvent, budget: number): Promise<Outcome> {
+async function handle(deps: Deps, event: LogEvent, dailyLimit: number): Promise<Outcome> {
   const { env, repo, diagnoser, slack, logs } = deps;
 
   // Gate 1 — a service with no registry entry has no repo to correlate
@@ -168,10 +161,18 @@ async function handle(deps: Deps, event: LogEvent, budget: number): Promise<Outc
     );
   }
 
-  // Gate 3 — daily cap. Queued as `new`, so a later run picks it up. Only
-  // diagnosis costs money: an incident that already has a brief and merely
-  // needs delivering is not charged, or a Slack outage could exhaust the cap.
-  if (!existing && budget <= 0) {
+  /**
+   * Gate 3 — daily cap. Queued as `new`, so a later run picks it up.
+   *
+   * Counted live rather than from a figure taken at the start of the run: the
+   * cron fires every five minutes and a manual ingest can overlap it, and two
+   * runs each holding their own budget would each spend a full cap.
+   *
+   * Only diagnosis costs money. An incident that already has a brief and
+   * merely needs delivering is not charged, or a Slack outage could exhaust
+   * the cap re-posting work already paid for.
+   */
+  if (!existing && (await db.briefsToday(env.DB)) >= dailyLimit) {
     await db.logEvent(env.DB, incident.id, "capped", "daily brief limit reached");
     return { kind: "capped", incident: brief(incident) };
   }
@@ -251,11 +252,7 @@ async function handle(deps: Deps, event: LogEvent, budget: number): Promise<Outc
     await db.logEvent(env.DB, incident.id, "posted", slack.live ? posted.ts : "simulated");
   }
 
-  return {
-    kind: "briefed",
-    diagnosed: !existing,
-    incident: { ...brief(incident), status: "posted" },
-  };
+  return { kind: "briefed", incident: { ...brief(incident), status: "posted" } };
 }
 
 function brief(incident: { id: string; service: string; status: string; occurrences: number }) {

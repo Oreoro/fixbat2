@@ -138,9 +138,11 @@ function newest(events: LogEvent[], fallback: string | null): string | null {
  * Events pushed to POST /ingest rather than polled.
  *
  * The cursor is the last consumed row id. Rows are left in place rather than
- * deleted on read, so a crash mid-run replays the window instead of losing it;
- * `prune` clears what is safely behind the cursor.
+ * deleted on read, so a crash mid-run replays the window instead of losing it,
+ * and are cleared later once they are safely behind the cursor.
  */
+const INBOX_RETENTION_DAYS = 7;
+
 export function httpSource(db: D1Database): LogSource {
   return {
     name: "http",
@@ -166,6 +168,20 @@ export function httpSource(db: D1Database): LogSource {
           // it; the cursor still advances past this row.
         }
       }
+
+      /**
+       * Clear what is both already consumed and old. Bounded by the cursor as
+       * it stood at the *start* of this fetch, so nothing read in this run is
+       * removed, and by age, so a recent window can still be replayed by hand.
+       * Without this the table grew for ever.
+       */
+      const cutoff = new Date(
+        Date.now() - INBOX_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+      ).toISOString();
+      await db
+        .prepare(`DELETE FROM inbox WHERE id <= ?1 AND received_at < ?2`)
+        .bind(after, cutoff)
+        .run();
 
       return { events, cursor: { position: String(highest) } };
     },
@@ -233,7 +249,9 @@ export function sentrySource(env: Env): LogSource {
 
         events.push({
           id: String(e.eventID ?? e.id ?? occurredAt),
-          service: String(e.projectID ? project : project || "unknown"),
+          // Sentry has no standard service field: the project is the unit.
+          // A `service` tag wins where clients set one.
+          service: tagOf(e, "service") ?? project ?? "unknown",
           environment: tagOf(e, "environment") ?? "production",
           severity: e.level === "fatal" ? "critical" : "high",
           occurredAt,

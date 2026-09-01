@@ -164,6 +164,18 @@ req("/setup/ingest","POST")
 chk("re-pushing the same errors adds none", d1("SELECT COUNT(*) n FROM incidents")[0]["n"], before)
 chk("...it bumps occurrences", d1("SELECT COUNT(*) n FROM incidents WHERE occurrences>1")[0]["n"], len(CASES))
 
+print("\n5. THE INBOX DOES NOT GROW FOR EVER")
+# Rows survive being read so a crash mid-run replays rather than loses the
+# window, but they must eventually go or the table grows without bound.
+kept_before = d1("SELECT COUNT(*) n FROM inbox")[0]["n"]
+chk("consumed rows are still present", kept_before > 0, True)
+d1("UPDATE inbox SET received_at='2020-01-01T00:00:00.000Z' "
+   "WHERE id = (SELECT MIN(id) FROM inbox)")
+req("/setup/ingest", "POST")
+kept_after = d1("SELECT COUNT(*) n FROM inbox")[0]["n"]
+chk("one consumed row past retention is cleared", kept_after, kept_before - 1)
+chk("recent rows are kept for replay", kept_after > 0, True)
+
 d1("UPDATE settings SET log_source='auto' WHERE id=1")   # leave the default behind
 
 print("\n" + "=" * 66)

@@ -148,6 +148,31 @@ if victim:
     chk("...and did not duplicate the row", count("tickets", f"incident_id='{vid}'"), 1)
 
 
+print("\n5. THE DAILY CAP COUNTS THE WHOLE DAY")
+# The cap is read live per brief rather than once per run, so it holds against
+# briefs written earlier today and against a manual ingest overlapping the cron.
+wipe()
+req("/setup/claim", "POST", form={"name": "Cap Test"})
+req("/setup/demo", "POST")
+chk("the demo wrote some briefs", count("briefs") > 0, True)
+
+# briefs cascade with their incidents, so clearing incidents resets the day.
+d1("UPDATE settings SET daily_brief_limit=0 WHERE id=1")
+d1("DELETE FROM incidents"); d1("DELETE FROM cursors"); d1("DELETE FROM events")
+req("/setup/ingest", "POST")
+chk("a cap of zero writes nothing", count("briefs"), 0)
+chk("...and the run records why", count("events", "kind='capped'") > 0, True)
+chk("...but the incidents are still recorded", count("incidents") > 0, True)
+
+# Exactly one, which means the count is re-read after each brief rather than
+# taken once for the whole run.
+d1("UPDATE settings SET daily_brief_limit=1 WHERE id=1")
+d1("DELETE FROM incidents"); d1("DELETE FROM cursors")
+req("/setup/ingest", "POST")
+chk("a cap of one writes exactly one brief", count("briefs"), 1)
+
+d1("UPDATE settings SET daily_brief_limit=50 WHERE id=1")
+
 print("\n" + "=" * 70)
 print(f"  {ok} passed, {fail} failed")
 print("=" * 70)

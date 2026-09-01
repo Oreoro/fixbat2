@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { detectLanguage } from "../fingerprint";
 import { Badge } from "@cloudflare/kumo/components/badge";
 import { Banner } from "@cloudflare/kumo/components/banner";
 import { Breadcrumbs } from "@cloudflare/kumo/components/breadcrumbs";
@@ -661,6 +662,11 @@ export function IncidentPage(d: DetailInput) {
                 ],
                 ["Repo", service ? service.repo : <span className="text-kumo-subtle">unmapped</span>],
                 ["Environment", incident.environment],
+                // Which matcher read the trace. Worth showing: if this says
+                // something unexpected, the cited file and line are suspect.
+                ...(detectLanguage(incident.stack_trace)
+                  ? ([["Runtime", detectLanguage(incident.stack_trace)]] as Array<[string, ReactNode]>)
+                  : []),
                 ["Version", incident.version || "unknown"],
                 ["Status", incident.status],
                 ["First seen", <Time iso={incident.first_seen}>{relativeTime(incident.first_seen)}</Time>],
