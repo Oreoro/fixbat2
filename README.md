@@ -11,7 +11,7 @@ deploy and you can wire in real services one at a time.
 
 ## Deploy
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/YOUR-ORG/fixbat)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Oreoro/fixbat2)
 
 One click. Cloudflare forks the repo into your account, provisions the D1
 database, applies migrations and deploys. Then open the URL it gives you and
@@ -21,7 +21,8 @@ and stores only its hash.
 From there, **Load demo data** puts realistic incidents in front of you
 immediately. No credentials, nothing external contacted.
 
-> Replace `YOUR-ORG/fixbat` in the button URL with your fork.
+> The button deploys whatever repository its URL names. If you fork this,
+> change `Oreoro/fixbat2` in that URL to your own fork before sharing it.
 
 **Claim it promptly.** Between deploy and claim the deployment has no
 administrator, so whoever opens the URL first becomes one. Deploying from CI?
@@ -406,9 +407,10 @@ What to check with them afterwards:
 
 Two things to settle before the first client:
 
-- **The Deploy button URL contains `YOUR-ORG/fixbat`.** Replace it with your own
-  public repository — the button deploys whatever repository the URL names, so a
-  stale placeholder either 404s or, worse, deploys something that is not yours.
+- **The Deploy button points at `Oreoro/fixbat2`.** That repository has to stay
+  public for the button to work — Cloudflare reads it as an anonymous visitor.
+  Anyone forking this must repoint that URL at their own fork first, or they
+  will be handing their clients somebody else's code.
 - **There is no `LICENSE` file.** Clients run this code in their own Cloudflare
   account, which means copying and modifying it; with no licence they have no
   stated right to do so. Which licence is a commercial decision, not a technical
