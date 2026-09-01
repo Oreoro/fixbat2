@@ -405,17 +405,12 @@ What to check with them afterwards:
 
 ### Publishing this for your clients
 
-Two things to settle before the first client:
+One thing to keep true:
 
 - **The Deploy button points at `Oreoro/fixbat2`.** That repository has to stay
   public for the button to work — Cloudflare reads it as an anonymous visitor.
   Anyone forking this must repoint that URL at their own fork first, or they
   will be handing their clients somebody else's code.
-- **There is no `LICENSE` file.** Clients run this code in their own Cloudflare
-  account, which means copying and modifying it; with no licence they have no
-  stated right to do so. Which licence is a commercial decision, not a technical
-  one — pick it, then add the file. MIT if you want clients to fork freely; a
-  proprietary licence granting customer use if it is a paid product.
 
 ---
 
