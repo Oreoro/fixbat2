@@ -479,7 +479,7 @@ export async function getIncidentExtras(
 export async function claimTicket(
   db: D1Database,
   incidentId: string,
-  ticket: { externalId: string; url: string; createdBy: string },
+  ticket: { externalId: string; url: string; createdBy: string; provider?: string },
 ): Promise<{ url: string; alreadyExisted: boolean }> {
   // The insert itself is the claim. Reading first and then inserting leaves a
   // window where two concurrent clicks both see nothing and both proceed —
@@ -487,9 +487,17 @@ export async function claimTicket(
   const insert = await db
     .prepare(
       `INSERT OR IGNORE INTO tickets (id, incident_id, provider, external_id, url, created_by, created_at)
-       VALUES (?1, ?2, 'github', ?3, ?4, ?5, ?6)`,
+       VALUES (?1, ?2, ?7, ?3, ?4, ?5, ?6)`,
     )
-    .bind(uuid(), incidentId, ticket.externalId, ticket.url, ticket.createdBy, now())
+    .bind(
+      uuid(),
+      incidentId,
+      ticket.externalId,
+      ticket.url,
+      ticket.createdBy,
+      now(),
+      ticket.provider ?? "github",
+    )
     .run();
 
   const row = await db

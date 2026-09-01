@@ -20,6 +20,8 @@ Rules:
 - Lead with what actually broke, in plain language. Never restate the stack trace; they can read it.
 - The suspected cause is a hypothesis, so write it as one. If the evidence genuinely does not support a cause, say "Not clear from the available evidence" and explain what you would need. That is a useful answer, not a failure.
 - Only cite a file, line, or commit that appears in the evidence. Never invent one.
+- When source is included it is the real file, and the failing line is marked with ">". Read it. If the code contradicts the obvious reading of the error, say so — that is the most valuable thing you can report.
+- When source is absent, say what you would check in it rather than guessing at its contents.
 - Tie recent commits to the failure only when there is a real connection. "Nothing here looks related" is a legitimate value for what_changed.
 - Open questions are the checks the engineer should run first, in the order you would run them. Two or three, concrete and specific to this error. Not generic advice.
 - No hedging filler, no apologies, no restating the question. Short sentences. Prefer specifics over adjectives.
@@ -93,7 +95,45 @@ ${e.event.stackTrace.split("\n").map((l) => `  ${l}`).join("\n")}
 
 recent_commits_touching_that_file:
 ${commits}
+
+source_at_the_failing_line:
+${renderSource(e)}
+
+what_those_commits_changed_in_this_file:
+${renderDiffs(e)}
 </evidence>`;
+}
+
+
+/**
+ * The real file around the fault, line-numbered, with the failing line marked.
+ * Without the numbers the model cannot cite a line it can see; without the
+ * marker it has to count.
+ */
+function renderSource(e: Evidence): string {
+  if (!e.source) {
+    return "  (repository not readable — no token configured, or the file has moved or been deleted)";
+  }
+  const last = e.source.startLine + e.source.lines.length - 1;
+  const width = String(last).length;
+  return e.source.lines
+    .map((text, i) => {
+      const n = e.source!.startLine + i;
+      const marker = n === e.frame?.line ? ">" : " ";
+      return `  ${marker} ${String(n).padStart(width)} | ${text}`;
+    })
+    .join("\n");
+}
+
+/** Patches are truncated: a large refactor must not crowd out the source. */
+function renderDiffs(e: Evidence): string {
+  if (!e.diffs.length) return "  (no patches available from this host)";
+  return e.diffs
+    .map((d) => {
+      const body = d.patch.length > 2000 ? `${d.patch.slice(0, 2000)}\n… truncated` : d.patch;
+      return `  --- ${d.sha} ---\n${body.split("\n").map((l) => `  ${l}`).join("\n")}`;
+    })
+    .join("\n\n");
 }
 
 export function anthropicDiagnoser(env: Env): Diagnoser {

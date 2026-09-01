@@ -1,4 +1,4 @@
-import type { CursorState, Env, FetchResult, LogEvent, Severity } from "../types";
+import type { CursorState, Env, FetchResult, LogEvent, Severity, StackFrame } from "../types";
 import fixtures from "../../fixtures/incidents.json";
 
 export interface LogSource {
@@ -190,3 +190,157 @@ export function normalisePushed(raw: any, id: number | string): LogEvent {
     traceId: raw.traceId ?? raw.trace_id ?? null,
   };
 }
+
+/**
+ * Sentry.
+ *
+ * Sentry has already done the work this pipeline would otherwise do from text:
+ * every frame carries `in_app`, so the application frame is known rather than
+ * inferred. That frame is passed through as `resolvedFrame` and a readable
+ * trace is rendered alongside it for the brief and the incident page.
+ *
+ * The cursor is the last event's dateCreated. Sentry returns newest-first, so
+ * the page is reversed before the pipeline sees it — every source in here
+ * yields oldest-first.
+ */
+export function sentrySource(env: Env): LogSource {
+  const host = (env.SENTRY_URL || "https://sentry.io").replace(/\/+$/, "");
+  const org = env.SENTRY_ORG ?? "";
+  const project = env.SENTRY_PROJECT ?? "";
+
+  return {
+    name: "sentry",
+    async fetch(cursor) {
+      const res = await fetch(
+        `${host}/api/0/projects/${org}/${project}/events/?full=true`,
+        { headers: { authorization: `Bearer ${env.SENTRY_TOKEN}`, accept: "application/json" } },
+      );
+      if (!res.ok) {
+        throw new Error(`sentry ${res.status}: ${(await res.text()).slice(0, 300)}`);
+      }
+
+      const since = cursor?.position ?? null;
+      const body = (await res.json()) as any[];
+      const events: LogEvent[] = [];
+
+      for (const e of Array.isArray(body) ? body.slice().reverse() : []) {
+        const occurredAt = e.dateCreated ?? e.dateReceived ?? new Date().toISOString();
+        if (since && occurredAt <= since) continue;
+
+        const exception = (e.entries ?? []).find((x: any) => x.type === "exception");
+        const value = exception?.data?.values?.[exception.data.values.length - 1];
+        const frames: any[] = value?.stacktrace?.frames ?? [];
+
+        events.push({
+          id: String(e.eventID ?? e.id ?? occurredAt),
+          service: String(e.projectID ? project : project || "unknown"),
+          environment: tagOf(e, "environment") ?? "production",
+          severity: e.level === "fatal" ? "critical" : "high",
+          occurredAt,
+          version: tagOf(e, "release") ?? "",
+          exceptionType: String(value?.type ?? e.type ?? "Error"),
+          message: String(value?.value ?? e.title ?? e.message ?? ""),
+          stackTrace: renderSentryFrames(value?.type, value?.value, frames),
+          traceId: tagOf(e, "trace") ?? null,
+          resolvedFrame: sentryAppFrame(frames),
+        });
+      }
+
+      return { events, cursor: { position: newest(events, since) } };
+    },
+  };
+}
+
+function tagOf(e: any, key: string): string | null {
+  const tag = (e.tags ?? []).find((t: any) => t.key === key);
+  return tag?.value ?? null;
+}
+
+/** Sentry orders frames oldest-first; the deepest in_app frame is the fault. */
+function sentryAppFrame(frames: any[]): StackFrame | null {
+  for (let i = frames.length - 1; i >= 0; i--) {
+    const f = frames[i];
+    if (f?.inApp === true || f?.in_app === true) {
+      return {
+        fn: String(f.function ?? "unknown"),
+        file: String(f.filename ?? f.absPath ?? f.module ?? "unknown"),
+        line: Number(f.lineNo ?? f.lineno ?? 0),
+      };
+    }
+  }
+  return null;
+}
+
+function renderSentryFrames(type: string | undefined, value: string | undefined, frames: any[]): string {
+  const head = `${type ?? "Error"}: ${value ?? ""}`;
+  const body = frames
+    .slice()
+    .reverse()
+    .map(
+      (f) =>
+        `    at ${f.function ?? "unknown"} (${f.filename ?? f.absPath ?? "unknown"}:${f.lineNo ?? f.lineno ?? 0}:0)`,
+    );
+  return [head, ...body].join("\n");
+}
+
+/**
+ * Datadog logs.
+ *
+ * Errors arrive as flat attributes rather than a structured exception, so the
+ * stack trace is whatever the application logged and the language matchers do
+ * the attribution.
+ */
+export function datadogSource(env: Env): LogSource {
+  const site = env.DATADOG_SITE || "datadoghq.com";
+
+  return {
+    name: "datadog",
+    async fetch(cursor) {
+      const since = cursor?.position ?? null;
+      const res = await fetch(`https://api.${site}/api/v2/logs/events/search`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "DD-API-KEY": env.DATADOG_API_KEY ?? "",
+          "DD-APPLICATION-KEY": env.DATADOG_APP_KEY ?? "",
+        },
+        body: JSON.stringify({
+          filter: {
+            query: env.DATADOG_QUERY || "status:error",
+            from: since ?? "now-1h",
+            to: "now",
+          },
+          sort: "timestamp",
+          page: { limit: 50 },
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`datadog ${res.status}: ${(await res.text()).slice(0, 300)}`);
+      }
+
+      const body = (await res.json()) as { data?: any[] };
+      const events: LogEvent[] = (body.data ?? []).map((row) => {
+        const a = row.attributes ?? {};
+        const attrs = a.attributes ?? {};
+        return {
+          id: String(row.id ?? a.timestamp ?? ""),
+          service: String(a.service ?? attrs.service ?? "unknown"),
+          environment: String(attrs.env ?? a.env ?? "production"),
+          severity: (String(a.status ?? "").toLowerCase() === "critical"
+            ? "critical"
+            : "high") as Severity,
+          occurredAt: String(a.timestamp ?? new Date().toISOString()),
+          version: String(attrs.version ?? ""),
+          exceptionType: String(attrs.error?.kind ?? attrs["error.kind"] ?? "Error"),
+          message: String(attrs.error?.message ?? attrs["error.message"] ?? a.message ?? ""),
+          stackTrace: String(attrs.error?.stack ?? attrs["error.stack"] ?? ""),
+          traceId: attrs.dd?.trace_id ?? attrs["dd.trace_id"] ?? null,
+        };
+      });
+
+      return { events, cursor: { position: newest(events, since) } };
+    },
+  };
+}
+

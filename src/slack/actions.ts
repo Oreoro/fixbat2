@@ -58,6 +58,7 @@ export async function fileIssue(deps: Deps, incident: IncidentRow, userId: strin
     externalId: "",
     url: "",
     createdBy: userId,
+    provider: deps.tickets.name,
   });
 
   // Someone already filed this one; the refresh below will show their link.
@@ -78,8 +79,8 @@ export async function fileIssue(deps: Deps, incident: IncidentRow, userId: strin
 
   let issue;
   try {
-    issue = await deps.repo.createIssue(
-      repo,
+    issue = await deps.tickets.create(
+      { repo, team: service?.team ?? "" },
       `${incident.service}: ${incident.exception_type} — ${truncate(incident.message, 80)}`,
       issueBody(incident, brief, repo),
     );

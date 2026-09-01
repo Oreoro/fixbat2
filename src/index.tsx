@@ -1,9 +1,31 @@
 import { Hono } from "hono";
 import * as db from "./db/queries";
 import { run, type Deps } from "./pipeline";
-import { elasticsearchSource, fixtureSource, httpSource, type LogSource } from "./providers/logs";
+import {
+  datadogSource,
+  elasticsearchSource,
+  fixtureSource,
+  httpSource,
+  sentrySource,
+  type LogSource,
+} from "./providers/logs";
 import { anthropicDiagnoser, simulatedDiagnoser } from "./providers/model";
-import { githubRepo, simulatedRepo } from "./providers/repo";
+import {
+  azureDevOpsRepo,
+  githubRepo,
+  gitlabRepo,
+  simulatedRepo,
+  type RepoSource,
+} from "./providers/repo";
+import {
+  azureDevOpsWorkItems,
+  githubIssues,
+  gitlabIssues,
+  jiraTickets,
+  linearTickets,
+  simulatedTickets,
+  type TicketProvider,
+} from "./providers/tickets";
 import { dismiss, fileIssue, handleInteraction } from "./slack/actions";
 import { renderBrief } from "./slack/blocks";
 import { slackClient } from "./slack/client";
@@ -54,17 +76,49 @@ function chooseLogSource(env: Env, choice: string): LogSource {
       return httpSource(env.DB);
     case "fixture":
       return fixtureSource();
+    case "sentry":
+      return sentrySource(env);
+    case "datadog":
+      return datadogSource(env);
   }
+  if (env.SENTRY_TOKEN && env.SENTRY_ORG && env.SENTRY_PROJECT) return sentrySource(env);
+  if (env.DATADOG_API_KEY && env.DATADOG_APP_KEY) return datadogSource(env);
   if (env.ELASTICSEARCH_URL) return elasticsearchSource(env);
   if (env.INGEST_TOKEN) return httpSource(env.DB);
   return fixtureSource();
+}
+
+/**
+ * The code host. Only one can be live at a time, because a service's `repo`
+ * column is a single identifier and means something different to each.
+ */
+function chooseRepo(env: Env): RepoSource {
+  if (env.GITHUB_TOKEN) return githubRepo(env);
+  if (env.GITLAB_TOKEN) return gitlabRepo(env);
+  if (env.AZDO_TOKEN && env.AZDO_ORG && env.AZDO_PROJECT) return azureDevOpsRepo(env);
+  return simulatedRepo(env);
+}
+
+/**
+ * Where briefs become tickets. Chosen independently of the code host: keeping
+ * code on GitHub and work in Jira is the common case, not the exception.
+ * A dedicated tracker wins over the code host's own issues.
+ */
+function chooseTickets(env: Env): TicketProvider {
+  if (env.JIRA_URL && env.JIRA_TOKEN && env.JIRA_PROJECT_KEY) return jiraTickets(env);
+  if (env.LINEAR_TOKEN && env.LINEAR_TEAM_ID) return linearTickets(env);
+  if (env.GITHUB_TOKEN) return githubIssues(env);
+  if (env.GITLAB_TOKEN) return gitlabIssues(env);
+  if (env.AZDO_TOKEN && env.AZDO_ORG && env.AZDO_PROJECT) return azureDevOpsWorkItems(env);
+  return simulatedTickets();
 }
 
 function deps(env: Env, logSource = "auto"): Deps {
   return {
     env,
     logs: chooseLogSource(env, logSource),
-    repo: env.GITHUB_TOKEN ? githubRepo(env) : simulatedRepo(env),
+    repo: chooseRepo(env),
+    tickets: chooseTickets(env),
     diagnoser: env.ANTHROPIC_API_KEY ? anthropicDiagnoser(env) : simulatedDiagnoser(),
     slack: slackClient(env),
   };
@@ -300,6 +354,7 @@ app.get("/health", async (c) => {
     providers: {
       logs: d.logs.name,
       repo: d.repo.name,
+      tickets: d.tickets.name,
       diagnoser: d.diagnoser.name,
       slack: d.slack.live ? "live" : "simulated",
     },

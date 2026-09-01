@@ -125,6 +125,11 @@ than failing quietly.
 | `SLACK_SIGNING_SECRET` | buttons return 503 | buttons work |
 | `GITHUB_TOKEN` | plausible fake commit history | real commits, real issues |
 | `ELASTICSEARCH_URL` + `_API_KEY` | bundled sample errors | your live logs |
+| `SENTRY_TOKEN` + `_ORG` + `_PROJECT` | bundled sample errors | Sentry, which also tells us which frames are yours |
+| `DATADOG_API_KEY` + `_APP_KEY` | bundled sample errors | Datadog error logs |
+| `INGEST_TOKEN` | nothing to push to | `POST /ingest` accepts errors you push |
+| `GITLAB_TOKEN` / `AZDO_TOKEN` | plausible fake commit history | GitLab or Azure DevOps instead of GitHub |
+| `JIRA_*` / `LINEAR_*` | briefs file to the code host | briefs file to Jira or Linear |
 | `PUBLIC_READ` | UI requires sign-in (default) | incident data readable anonymously |
 
 Repos and Slack channels are per-service, not global:
@@ -212,6 +217,49 @@ Set `PUBLIC_READ=true` to opt a deployment into anonymous read access.
 | `POST /admin/settings` | bearer | Kill switch, daily limit |
 
 ¹ Open to anonymous readers when `PUBLIC_READ=true`.
+
+---
+
+## What it connects to
+
+Each role is chosen independently, because clients mix them — code on GitHub,
+work in Jira, errors in Sentry.
+
+| Role | Supported | Chosen by |
+|---|---|---|
+| **Log source** | Sentry, Datadog, Elasticsearch, pushed via `POST /ingest`, bundled samples | most specific credentials present; `log_source` pins one explicitly |
+| **Code host** | GitHub, GitLab, Azure DevOps | first token present |
+| **Issue tracker** | Jira, Linear, GitHub Issues, GitLab Issues, Azure DevOps Work Items | a dedicated tracker wins over the code host's own issues |
+| **Runtimes** | JavaScript, Python, JVM, .NET, Ruby, PHP, Go | detected per stack trace |
+
+Anything unconfigured stays simulated, so a client can adopt one at a time.
+
+### Pushing errors instead of being polled
+
+For logs FixBat cannot reach — an internal collector, a custom shipper,
+anything behind your own network:
+
+```bash
+curl -X POST "$URL/ingest" -H "authorization: Bearer $INGEST_TOKEN" \
+  -H 'content-type: application/json' \
+  -d '[{"service":"checkout-service","exceptionType":"TypeError",
+        "message":"Cannot read properties of undefined",
+        "stackTrace":"...","occurredAt":"2026-09-02T10:00:00Z"}]'
+```
+
+Up to 100 events per request. `INGEST_TOKEN` is deliberately **not** the admin
+token: it is distributed to every application that reports errors, so it must
+not also grant administration. Events are buffered and drained on the next run,
+so nothing at the edge calls the model or costs money.
+
+### Reading the actual code
+
+With a code host token, the brief is written from real source: the failing line
+and its surroundings, plus what the recent commits actually changed in that
+file. That is the difference between "this commit looks related" and "line 142
+reads `summary.total`, but `buildOrderSummary` only sets `total` after this
+call". Without a token it degrades to commit subjects rather than inventing
+source — the rubric forbids citing anything absent from the evidence.
 
 ---
 
@@ -362,7 +410,7 @@ npm run dev      # in one shell
 npm test         # in another
 ```
 
-134 checks over six suites, all against a real server — no mocks.
+182 checks over eight suites, all against a real server — no mocks.
 
 `test/audit.py` walks the whole product from an empty deployment — claim, demo,
 triage, dedupe, Slack, resolution, guardrails, security headers, audit trail.
@@ -376,6 +424,11 @@ fingerprint independently so that folding a trace id into it fails the build.
 `test/pipeline.py` covers recovery: incidents that arrived before their service
 was registered, ticket lookups past the first 200 incidents, and a filing that
 died mid-flight.
+`test/languages.py` pushes one real stack trace per runtime through `/ingest`,
+each with a framework frame *above* the application frame, so a parser that
+took the first readable line would fail all seven.
+`test/providers.py` covers which provider is live and why, including that the
+issue tracker is chosen independently of the code host.
 
 `npm run dev` passes `--test-scheduled`, which is what lets the suite trigger
 the cron on demand at `/__scheduled`. The tests read the database name from

@@ -10,13 +10,25 @@ import type { LogEvent } from "./types";
  */
 export { firstAppFrame, detectLanguage } from "./stackframes";
 import { firstAppFrame } from "./stackframes";
+import type { StackFrame } from "./types";
+
+/**
+ * The frame an event is attributed to. A source that already knows wins over
+ * parsing rendered text; everything else goes through the language matchers.
+ *
+ * Every caller must use this rather than firstAppFrame directly, or a source
+ * with a resolved frame would fingerprint one way and cite another.
+ */
+export function frameFor(event: LogEvent): StackFrame | null {
+  return event.resolvedFrame ?? firstAppFrame(event.stackTrace);
+}
 
 /**
  * Stable across line-number drift: keep the file and function, drop the line,
  * so an edit above the fault does not mint a new incident.
  */
 export async function fingerprint(event: LogEvent): Promise<string> {
-  const frame = firstAppFrame(event.stackTrace);
+  const frame = frameFor(event);
   const parts = [
     event.service,
     event.environment,

@@ -1,8 +1,9 @@
-import { fingerprint, firstAppFrame } from "./fingerprint";
+import { fingerprint, frameFor } from "./fingerprint";
 import * as db from "./db/queries";
 import type { Diagnoser } from "./providers/model";
 import type { LogSource } from "./providers/logs";
 import { toRepoPath, type RepoSource } from "./providers/repo";
+import type { TicketProvider } from "./providers/tickets";
 import { fallbackText, renderBrief } from "./slack/blocks";
 import type { SlackClient } from "./slack/client";
 import type { Commit, CursorState, Env, Evidence, LogEvent } from "./types";
@@ -11,6 +12,8 @@ export interface Deps {
   env: Env;
   logs: LogSource;
   repo: RepoSource;
+  /** Where briefs become tickets. Independent of the code host. */
+  tickets: TicketProvider;
   diagnoser: Diagnoser;
   slack: SlackClient;
 }
@@ -173,7 +176,7 @@ async function handle(deps: Deps, event: LogEvent, budget: number): Promise<Outc
     return { kind: "capped", incident: brief(incident) };
   }
 
-  const frame = firstAppFrame(event.stackTrace);
+  const frame = frameFor(event);
   let commits: Commit[] = [];
   if (frame) {
     try {
@@ -184,6 +187,33 @@ async function handle(deps: Deps, event: LogEvent, budget: number): Promise<Outc
     }
   }
 
+  /**
+   * Real code, when the repo can be read. A brief written from commit subjects
+   * alone can only say "this commit looks related"; with the failing lines and
+   * what those commits changed in them, it can say why.
+   *
+   * Both are best-effort: a file that has moved, or a host that does not expose
+   * patches, must not cost the brief.
+   */
+  let source = null as Evidence["source"];
+  const diffs: Evidence["diffs"] = [];
+  if (frame) {
+    const path = toRepoPath(frame.file);
+    try {
+      source = await repo.readSource(service.repo, path, frame.line, 25);
+    } catch (error) {
+      await db.logEvent(env.DB, incident.id, "source_unavailable", String(error));
+    }
+    for (const commit of commits.slice(0, 2)) {
+      try {
+        const patch = await repo.commitDiff(service.repo, commit.sha, path);
+        if (patch) diffs.push({ sha: commit.shortSha, patch });
+      } catch {
+        // A missing patch is not worth a log line per commit.
+      }
+    }
+  }
+
   const evidence: Evidence = {
     event,
     occurrences: incident.occurrences,
@@ -191,6 +221,8 @@ async function handle(deps: Deps, event: LogEvent, budget: number): Promise<Outc
     commits,
     repo: service.repo,
     team: service.team,
+    source,
+    diffs,
   };
 
   if (!existing) {

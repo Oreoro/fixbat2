@@ -14,6 +14,36 @@ export interface Env {
   /** Bearer credential for POST /ingest. Deliberately not ADMIN_TOKEN: it is
    *  distributed to every application that reports errors. */
   INGEST_TOKEN?: string;
+
+  // ---- log sources ----
+  SENTRY_TOKEN?: string;
+  SENTRY_ORG?: string;
+  SENTRY_PROJECT?: string;
+  /** Self-hosted Sentry. Defaults to https://sentry.io. */
+  SENTRY_URL?: string;
+  DATADOG_API_KEY?: string;
+  DATADOG_APP_KEY?: string;
+  /** e.g. datadoghq.eu. Defaults to datadoghq.com. */
+  DATADOG_SITE?: string;
+  /** Overrides the default `status:error` search. */
+  DATADOG_QUERY?: string;
+
+  // ---- code hosts ----
+  GITLAB_TOKEN?: string;
+  /** Self-managed GitLab. Defaults to https://gitlab.com. */
+  GITLAB_URL?: string;
+  AZDO_TOKEN?: string;
+  AZDO_ORG?: string;
+  AZDO_PROJECT?: string;
+
+  // ---- issue trackers ----
+  JIRA_URL?: string;
+  JIRA_EMAIL?: string;
+  JIRA_TOKEN?: string;
+  JIRA_PROJECT_KEY?: string;
+  JIRA_ISSUE_TYPE?: string;
+  LINEAR_TOKEN?: string;
+  LINEAR_TEAM_ID?: string;
 }
 
 /** One error event as it arrives from a log source. */
@@ -33,6 +63,12 @@ export interface LogEvent {
    * that is unique per request would give every occurrence its own identity.
    */
   traceId: string | null;
+  /**
+   * Set by sources that already know which frame is the application's —
+   * Sentry tags every frame with `in_app`, which is better information than
+   * re-deriving it from rendered text. Null means "parse the stack trace".
+   */
+  resolvedFrame?: StackFrame | null;
 }
 
 /**
@@ -73,6 +109,10 @@ export interface Evidence {
   commits: Commit[];
   repo: string;
   team: string;
+  /** Real source around the failing line, when the repo could be read. */
+  source: { path: string; startLine: number; lines: string[] } | null;
+  /** What the recent commits actually changed in that file. */
+  diffs: Array<{ sha: string; patch: string }>;
 }
 
 /** What the diagnoser returns. Typed fields, because the renderer needs them apart. */
