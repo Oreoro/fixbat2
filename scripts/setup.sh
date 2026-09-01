@@ -99,6 +99,18 @@ fi
 DB_ID=$($WRANGLER d1 list --json 2>/dev/null \
   | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const m=JSON.parse(s).find(d=>d.name==='$DB_NAME');process.stdout.write(m?(m.uuid||m.database_id||''):'')})")
 
+# --check promises to report state and change nothing, so it neither fails on a
+# database that does not exist yet — the normal state for a new client — nor
+# rewrites the config.
+if [ "$CHECK_ONLY" = yes ]; then
+  if [ -n "$DB_ID" ]; then
+    ok "database id $DB_ID"
+    info "wrangler.jsonc would be pointed at it"
+  else
+    warn "no database yet — setup would create one and write its id into wrangler.jsonc"
+  fi
+else
+
 [ -n "$DB_ID" ] || fail "Could not determine the database id for '$DB_NAME'."
 ok "database id $DB_ID"
 
@@ -120,9 +132,18 @@ if (s!==before) fs.writeFileSync(p,s);
 "
 ok "wrangler.jsonc points at your database"
 
+fi
+
 if [ "$CHECK_ONLY" = yes ]; then
-  info "Pending migrations:"
-  $WRANGLER d1 migrations list "$DB_NAME" --remote 2>&1 | sed 's/^/    /' || true
+  # Listing migrations against a database that does not exist yet prints a raw
+  # wrangler error, which reads as a failure on a first run when it is simply
+  # not created yet.
+  if [ -n "$DB_ID" ]; then
+    info "Pending migrations:"
+    $WRANGLER d1 migrations list "$DB_NAME" --remote 2>&1 | sed 's/^/    /' || true
+  else
+    info "Migrations will be applied once the database exists."
+  fi
 else
   info "Applying migrations (additive — existing data is preserved)…"
   $WRANGLER d1 migrations apply "$DB_NAME" --remote
@@ -156,7 +177,14 @@ put_secret() { # put_secret <NAME> <description> <required>
 }
 
 if [ "$CHECK_ONLY" = yes ]; then
-  for n in ADMIN_TOKEN ANTHROPIC_API_KEY SLACK_BOT_TOKEN SLACK_SIGNING_SECRET GITHUB_TOKEN ELASTICSEARCH_URL ELASTICSEARCH_API_KEY; do
+  # ADMIN_TOKEN is not a provider — unset means the deployment is claimed in the
+  # browser instead, which is the normal one-click path, not a missing feature.
+  if have_secret ADMIN_TOKEN; then
+    ok "ADMIN_TOKEN set — the claim step will be skipped"
+  else
+    info "ADMIN_TOKEN not set — the first person to open the site claims it"
+  fi
+  for n in ANTHROPIC_API_KEY SLACK_BOT_TOKEN SLACK_SIGNING_SECRET GITHUB_TOKEN ELASTICSEARCH_URL ELASTICSEARCH_API_KEY; do
     if have_secret "$n"; then ok "$n set"; else info "$n not set — that provider stays simulated"; fi
   done
   step "Check complete"

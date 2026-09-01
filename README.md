@@ -47,6 +47,13 @@ Verify the environment first without changing anything:
 npm run setup -- --check
 ```
 
+The Worker and its database are both called `fixbat`. To deploy against a
+database that already exists under another name, set it once:
+
+```bash
+FIXBAT_DB_NAME=my-existing-db npm run setup
+```
+
 When setup finishes you get a URL that already works, using bundled sample
 errors, and the `ADMIN_TOKEN` printed once. Open `/setup` on that URL, sign in
 with the token, and finish onboarding in the browser — registering services,
@@ -380,10 +387,16 @@ What to check with them afterwards:
 
 ### Publishing this for your clients
 
-The Deploy button URL contains `YOUR-ORG/fixbat`. Replace it with your own
-public repository before sending it to anyone — the button deploys whatever
-repository the URL names, so a stale placeholder either 404s or, worse, deploys
-something that is not yours.
+Two things to settle before the first client:
+
+- **The Deploy button URL contains `YOUR-ORG/fixbat`.** Replace it with your own
+  public repository — the button deploys whatever repository the URL names, so a
+  stale placeholder either 404s or, worse, deploys something that is not yours.
+- **There is no `LICENSE` file.** Clients run this code in their own Cloudflare
+  account, which means copying and modifying it; with no licence they have no
+  stated right to do so. Which licence is a commercial decision, not a technical
+  one — pick it, then add the file. MIT if you want clients to fork freely; a
+  proprietary licence granting customer use if it is a paid product.
 
 ---
 
