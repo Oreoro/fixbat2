@@ -72,7 +72,7 @@ def wipe():
               "events", "auth_attempts", "tickets", "dispositions", "briefs"):
         d1(f"DELETE FROM {t}")
     d1("UPDATE deployment SET token_hash=NULL, claimed_at=NULL, claimed_by=NULL")
-    d1("UPDATE settings SET kill_switch=0, daily_brief_limit=50 WHERE id=1")
+    d1("UPDATE settings SET kill_switch=0, daily_brief_limit=50, log_source='auto' WHERE id=1")
     JAR.clear()
 
 

@@ -133,3 +133,60 @@ function newest(events: LogEvent[], fallback: string | null): string | null {
     fallback,
   );
 }
+
+/**
+ * Events pushed to POST /ingest rather than polled.
+ *
+ * The cursor is the last consumed row id. Rows are left in place rather than
+ * deleted on read, so a crash mid-run replays the window instead of losing it;
+ * `prune` clears what is safely behind the cursor.
+ */
+export function httpSource(db: D1Database): LogSource {
+  return {
+    name: "http",
+    async fetch(cursor) {
+      const after = Number(cursor?.position ?? 0) || 0;
+      const { results } = await db
+        .prepare(
+          `SELECT id, payload_json FROM inbox WHERE id > ?1 ORDER BY id LIMIT 50`,
+        )
+        .bind(after)
+        .all<{ id: number; payload_json: string }>();
+
+      const rows = results ?? [];
+      const events: LogEvent[] = [];
+      let highest = after;
+
+      for (const row of rows) {
+        highest = Math.max(highest, row.id);
+        try {
+          events.push(normalisePushed(JSON.parse(row.payload_json), row.id));
+        } catch {
+          // A single malformed payload must not stall the whole queue behind
+          // it; the cursor still advances past this row.
+        }
+      }
+
+      return { events, cursor: { position: String(highest) } };
+    },
+  };
+}
+
+/** Shapes a pushed payload into a LogEvent, filling in what it omits. */
+export function normalisePushed(raw: any, id: number | string): LogEvent {
+  const severity = String(raw.severity ?? "high").toLowerCase();
+  return {
+    id: String(raw.id ?? `inbox-${id}`),
+    service: String(raw.service ?? "unknown"),
+    environment: String(raw.environment ?? "production"),
+    severity: (["critical", "high", "medium", "low"].includes(severity)
+      ? severity
+      : "high") as Severity,
+    occurredAt: String(raw.occurredAt ?? raw.timestamp ?? new Date().toISOString()),
+    version: String(raw.version ?? ""),
+    exceptionType: String(raw.exceptionType ?? raw.type ?? "Error"),
+    message: String(raw.message ?? ""),
+    stackTrace: String(raw.stackTrace ?? raw.stack ?? ""),
+    traceId: raw.traceId ?? raw.trace_id ?? null,
+  };
+}

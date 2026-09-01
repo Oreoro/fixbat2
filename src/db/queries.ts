@@ -238,13 +238,15 @@ export async function updateSettings(
     kill_switch_reason?: string;
     daily_brief_limit?: number;
     trace_url_template?: string;
+    log_source?: string;
   },
 ): Promise<void> {
   const current = await getSettings(db);
   await db
     .prepare(
       `UPDATE settings SET kill_switch = ?1, kill_switch_reason = ?2,
-              daily_brief_limit = ?3, trace_url_template = ?5, updated_at = ?4 WHERE id = 1`,
+              daily_brief_limit = ?3, trace_url_template = ?5, log_source = ?6,
+              updated_at = ?4 WHERE id = 1`,
     )
     .bind(
       patch.kill_switch === undefined ? current.kill_switch : patch.kill_switch ? 1 : 0,
@@ -252,6 +254,7 @@ export async function updateSettings(
       patch.daily_brief_limit ?? current.daily_brief_limit,
       now(),
       patch.trace_url_template ?? current.trace_url_template,
+      patch.log_source ?? current.log_source,
     )
     .run();
 }

@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import * as db from "./db/queries";
 import { run, type Deps } from "./pipeline";
-import { elasticsearchSource, fixtureSource } from "./providers/logs";
+import { elasticsearchSource, fixtureSource, httpSource, type LogSource } from "./providers/logs";
 import { anthropicDiagnoser, simulatedDiagnoser } from "./providers/model";
 import { githubRepo, simulatedRepo } from "./providers/repo";
 import { dismiss, fileIssue, handleInteraction } from "./slack/actions";
@@ -26,7 +26,7 @@ import {
   recordFailure,
   sessionCookie,
 } from "./auth";
-import { createUser, identify, listUsers, setUserDisabled } from "./users";
+import { createUser, identify, listUsers, setUserDisabled, timingSafeEqual } from "./users";
 import { deleteSecret, listSecrets, MANAGED_SECRETS, putSecret, resolveEnv } from "./secrets";
 import { ClaimPage, ErrorPage, SetupPage, SignInPage } from "./ui/setup";
 
@@ -35,13 +35,35 @@ import { ClaimPage, ErrorPage, SetupPage, SignInPage } from "./ui/setup";
  * not, so the whole pipeline runs end to end with nothing configured.
  */
 async function depsFor(env: Env): Promise<Deps> {
-  return deps(await resolveEnv(env));
+  const [resolved, settings] = await Promise.all([resolveEnv(env), db.getSettings(env.DB)]);
+  return deps(resolved, settings.log_source);
 }
 
-function deps(env: Env): Deps {
+/**
+ * Which source the pipeline reads.
+ *
+ * `auto` takes the first one whose credentials are present, most specific
+ * first, and falls back to the bundled samples. An explicit value pins it, so
+ * a client with more than one configured is never guessing which is live.
+ */
+function chooseLogSource(env: Env, choice: string): LogSource {
+  switch (choice) {
+    case "elasticsearch":
+      return elasticsearchSource(env);
+    case "http":
+      return httpSource(env.DB);
+    case "fixture":
+      return fixtureSource();
+  }
+  if (env.ELASTICSEARCH_URL) return elasticsearchSource(env);
+  if (env.INGEST_TOKEN) return httpSource(env.DB);
+  return fixtureSource();
+}
+
+function deps(env: Env, logSource = "auto"): Deps {
   return {
     env,
-    logs: env.ELASTICSEARCH_URL ? elasticsearchSource(env) : fixtureSource(),
+    logs: chooseLogSource(env, logSource),
     repo: env.GITHUB_TOKEN ? githubRepo(env) : simulatedRepo(env),
     diagnoser: env.ANTHROPIC_API_KEY ? anthropicDiagnoser(env) : simulatedDiagnoser(),
     slack: slackClient(env),
@@ -134,7 +156,7 @@ const isHttps = (c: any) => new URL(c.req.url).protocol === "https:";
  * private unless the operator opts in. Sign-in, claim, health and static assets
  * stay open, and Slack authenticates by signature rather than session.
  */
-const ALWAYS_OPEN = new Set(["/health", "/kumo.css", "/client.js", "/slack/actions"]);
+const ALWAYS_OPEN = new Set(["/health", "/kumo.css", "/client.js", "/slack/actions", "/ingest"]);
 
 const viewer = async (c: any, next: any) => {
   const path = new URL(c.req.url).pathname;
@@ -607,6 +629,50 @@ app.post("/setup/kill", adminPage, async (c) => {
 
 /* ----------------------------------------------------------------- admin */
 
+/**
+ * Push endpoint for clients whose errors FixBat cannot reach.
+ *
+ * Authenticated with INGEST_TOKEN rather than the admin token, because this
+ * credential is distributed to every application that reports errors and must
+ * not also grant administration. Events are buffered; the `http` source drains
+ * them on the next run, so nothing here calls the model or costs money.
+ */
+app.post("/ingest", async (c) => {
+  const env = await resolveEnv(c.env);
+  if (!env.INGEST_TOKEN) {
+    return c.json({ error: "ingest is not configured — set INGEST_TOKEN" }, 503);
+  }
+
+  const header = c.req.header("authorization") ?? "";
+  const supplied = header.startsWith("Bearer ") ? header.slice(7) : "";
+  if (!supplied || !timingSafeEqual(env.INGEST_TOKEN, supplied)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "body must be JSON" }, 400);
+  }
+
+  const items = Array.isArray(body) ? body : [body];
+  if (!items.length) return c.json({ ok: true, accepted: 0 });
+  if (items.length > 100) return c.json({ error: "at most 100 events per request" }, 413);
+
+  const now = new Date().toISOString();
+  await c.env.DB.batch(
+    items.map((item) =>
+      c.env.DB.prepare(`INSERT INTO inbox (received_at, payload_json) VALUES (?1, ?2)`).bind(
+        now,
+        JSON.stringify(item),
+      ),
+    ),
+  );
+
+  return c.json({ ok: true, accepted: items.length });
+});
+
 app.post("/admin/ingest", admin, async (c) => c.json(await run(await depsFor(c.env))));
 
 app.post("/admin/reset", admin, async (c) => {
@@ -635,6 +701,7 @@ app.post("/admin/settings", admin, async (c) => {
     kill_switch_reason?: string;
     daily_brief_limit?: number;
     trace_url_template?: string;
+    log_source?: string;
   }>();
   await db.updateSettings(c.env.DB, body ?? {});
   return c.json({ ok: true, settings: await db.getSettings(c.env.DB) });

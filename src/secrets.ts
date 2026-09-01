@@ -40,6 +40,12 @@ export const MANAGED_SECRETS = [
     unlocks: "repo",
   },
   {
+    name: "INGEST_TOKEN",
+    label: "Ingest token",
+    help: "Bearer credential your applications use to POST errors to /ingest. Not your admin token.",
+    unlocks: "logs",
+  },
+  {
     name: "ELASTICSEARCH_URL",
     label: "Elasticsearch URL",
     help: "Your cluster, reachable from Cloudflare's network.",

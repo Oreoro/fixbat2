@@ -1,22 +1,15 @@
-import type { LogEvent, StackFrame } from "./types";
-
-const DEPENDENCY = /[/\\]node_modules[/\\]/;
-const FRAME = /^\s*at\s+(?:async\s+)?(.+?)\s+\((.+?):(\d+):(\d+)\)\s*$/;
+import type { LogEvent } from "./types";
 
 /**
  * First stack frame belonging to the application rather than a dependency.
  * This is what makes two occurrences of "the same bug" hash alike.
+ *
+ * Lives in ./stackframes, which understands JavaScript, Python, JVM, .NET,
+ * Ruby, PHP and Go. Re-exported here because this is where it is conceptually
+ * load-bearing: it is the input to the fingerprint.
  */
-export function firstAppFrame(stackTrace: string): StackFrame | null {
-  for (const line of stackTrace.split("\n")) {
-    const m = FRAME.exec(line);
-    if (!m) continue;
-    const [, fn, file, lineNo] = m;
-    if (DEPENDENCY.test(file)) continue;
-    return { fn: fn.trim(), file, line: Number(lineNo) };
-  }
-  return null;
-}
+export { firstAppFrame, detectLanguage } from "./stackframes";
+import { firstAppFrame } from "./stackframes";
 
 /**
  * Stable across line-number drift: keep the file and function, drop the line,

@@ -11,6 +11,9 @@ export interface Env {
   GITHUB_TOKEN?: string;
   ELASTICSEARCH_URL?: string;
   ELASTICSEARCH_API_KEY?: string;
+  /** Bearer credential for POST /ingest. Deliberately not ADMIN_TOKEN: it is
+   *  distributed to every application that reports errors. */
+  INGEST_TOKEN?: string;
 }
 
 /** One error event as it arrives from a log source. */
@@ -118,6 +121,8 @@ export interface SettingsRow {
   daily_brief_limit: number;
   /** Link target for a trace id, with a {traceId} placeholder. Empty = no link. */
   trace_url_template: string;
+  /** 'auto' or an explicit source name. See chooseLogSource in index.tsx. */
+  log_source: string;
   updated_at: string;
 }
 
