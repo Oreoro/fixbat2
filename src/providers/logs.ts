@@ -20,6 +20,7 @@ interface Fixture {
   exception_type: string;
   message: string;
   stack_trace: string;
+  trace_id?: string;
 }
 
 /**
@@ -46,6 +47,7 @@ export function fixtureSource(): LogSource {
           exceptionType: f.exception_type,
           message: f.message,
           stackTrace: f.stack_trace,
+          traceId: f.trace_id ?? null,
         }))
         .sort((a, b) => a.occurredAt.localeCompare(b.occurredAt));
 
@@ -89,6 +91,10 @@ export function elasticsearchSource(env: Env): LogSource {
             "error.type",
             "error.message",
             "error.stack_trace",
+            // ECS correlation fields. transaction.id is the fallback for
+            // sources that tag the request but not the distributed trace.
+            "trace.id",
+            "transaction.id",
           ],
         }),
       });
@@ -111,6 +117,8 @@ export function elasticsearchSource(env: Env): LogSource {
           exceptionType: s["error.type"] ?? s.error?.type ?? "Error",
           message: s["error.message"] ?? s.error?.message ?? "",
           stackTrace: s["error.stack_trace"] ?? s.error?.stack_trace ?? "",
+          traceId:
+            s["trace.id"] ?? s.trace?.id ?? s["transaction.id"] ?? s.transaction?.id ?? null,
         };
       });
 

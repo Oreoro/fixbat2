@@ -8,7 +8,8 @@
     "version": "2026.8.31-a4f21c9",
     "exception_type": "TypeError",
     "message": "Cannot read properties of undefined (reading 'total')",
-    "stack_trace": "TypeError: Cannot read properties of undefined (reading 'total')\n    at applyPromotion (/app/src/checkout/pricing.ts:142:31)\n    at buildOrderSummary (/app/src/checkout/summary.ts:88:22)\n    at async POST /checkout/confirm (/app/src/routes/checkout.ts:57:18)\n    at async Layer.handle (/app/node_modules/express/lib/router/layer.js:95:5)"
+    "stack_trace": "TypeError: Cannot read properties of undefined (reading 'total')\n    at applyPromotion (/app/src/checkout/pricing.ts:142:31)\n    at buildOrderSummary (/app/src/checkout/summary.ts:88:22)\n    at async POST /checkout/confirm (/app/src/routes/checkout.ts:57:18)\n    at async Layer.handle (/app/node_modules/express/lib/router/layer.js:95:5)",
+    "trace_id": "67279e51f788aee2be1310fd59345e43"
   },
   {
     "id": "evt-0002",
@@ -19,7 +20,8 @@
     "version": "2026.8.31-a4f21c9",
     "exception_type": "TypeError",
     "message": "Cannot read properties of undefined (reading 'total')",
-    "stack_trace": "TypeError: Cannot read properties of undefined (reading 'total')\n    at applyPromotion (/app/src/checkout/pricing.ts:142:31)\n    at buildOrderSummary (/app/src/checkout/summary.ts:88:22)\n    at async POST /checkout/confirm (/app/src/routes/checkout.ts:57:18)\n    at async Layer.handle (/app/node_modules/express/lib/router/layer.js:95:5)"
+    "stack_trace": "TypeError: Cannot read properties of undefined (reading 'total')\n    at applyPromotion (/app/src/checkout/pricing.ts:142:31)\n    at buildOrderSummary (/app/src/checkout/summary.ts:88:22)\n    at async POST /checkout/confirm (/app/src/routes/checkout.ts:57:18)\n    at async Layer.handle (/app/node_modules/express/lib/router/layer.js:95:5)",
+    "trace_id": "4974e19cca5e6dd8f763927b46125851"
   },
   {
     "id": "evt-0003",
@@ -30,7 +32,8 @@
     "version": "2026.8.29-77bd014",
     "exception_type": "TimeoutError",
     "message": "Knex: Timeout acquiring a connection. The pool is probably full.",
-    "stack_trace": "TimeoutError: Knex: Timeout acquiring a connection. The pool is probably full.\n    at Client_PG.acquireConnection (/app/node_modules/knex/lib/client.js:307:26)\n    at async settleBatch (/app/src/payments/settlement.ts:203:20)\n    at async runSettlementCycle (/app/src/payments/settlement.ts:64:5)\n    at async Timeout._onTimeout (/app/src/jobs/scheduler.ts:41:7)"
+    "stack_trace": "TimeoutError: Knex: Timeout acquiring a connection. The pool is probably full.\n    at Client_PG.acquireConnection (/app/node_modules/knex/lib/client.js:307:26)\n    at async settleBatch (/app/src/payments/settlement.ts:203:20)\n    at async runSettlementCycle (/app/src/payments/settlement.ts:64:5)\n    at async Timeout._onTimeout (/app/src/jobs/scheduler.ts:41:7)",
+    "trace_id": "5c333ed218897c49edd5fdc879d7531c"
   },
   {
     "id": "evt-0004",
@@ -52,7 +55,8 @@
     "version": "2026.8.30-1c0e8ab",
     "exception_type": "RangeError",
     "message": "Maximum call stack size exceeded",
-    "stack_trace": "RangeError: Maximum call stack size exceeded\n    at resolveVariantTree (/app/src/inventory/variants.ts:91:12)\n    at resolveVariantTree (/app/src/inventory/variants.ts:97:24)\n    at resolveVariantTree (/app/src/inventory/variants.ts:97:24)\n    at expandCatalog (/app/src/inventory/catalog.ts:158:9)"
+    "stack_trace": "RangeError: Maximum call stack size exceeded\n    at resolveVariantTree (/app/src/inventory/variants.ts:91:12)\n    at resolveVariantTree (/app/src/inventory/variants.ts:97:24)\n    at resolveVariantTree (/app/src/inventory/variants.ts:97:24)\n    at expandCatalog (/app/src/inventory/catalog.ts:158:9)",
+    "trace_id": "7266df868d2c400576e1d530a83bf338"
   },
   {
     "id": "evt-0006",
@@ -63,7 +67,8 @@
     "version": "2026.8.31-a4f21c9",
     "exception_type": "FetchError",
     "message": "request to https://api.stripe.com/v1/charges failed, reason: socket hang up",
-    "stack_trace": "FetchError: request to https://api.stripe.com/v1/charges failed, reason: socket hang up\n    at ClientRequest.<anonymous> (/app/node_modules/node-fetch/lib/index.js:1491:11)\n    at chargeCard (/app/src/checkout/payment.ts:64:20)\n    at async POST /checkout/confirm (/app/src/routes/checkout.ts:71:22)"
+    "stack_trace": "FetchError: request to https://api.stripe.com/v1/charges failed, reason: socket hang up\n    at ClientRequest.<anonymous> (/app/node_modules/node-fetch/lib/index.js:1491:11)\n    at chargeCard (/app/src/checkout/payment.ts:64:20)\n    at async POST /checkout/confirm (/app/src/routes/checkout.ts:71:22)",
+    "trace_id": "c96e0cba454a88ec6ca774819b5fb92b"
   },
   {
     "id": "evt-0007",
@@ -85,7 +90,8 @@
     "version": "2026.8.29-77bd014",
     "exception_type": "ReplyError",
     "message": "READONLY You can't write against a read only replica.",
-    "stack_trace": "ReplyError: READONLY You can't write against a read only replica.\n    at parseError (/app/node_modules/redis-parser/lib/parser.js:179:12)\n    at cacheIdempotencyKey (/app/src/payments/idempotency.ts:33:15)\n    at async POST /charges (/app/src/routes/charges.ts:52:9)"
+    "stack_trace": "ReplyError: READONLY You can't write against a read only replica.\n    at parseError (/app/node_modules/redis-parser/lib/parser.js:179:12)\n    at cacheIdempotencyKey (/app/src/payments/idempotency.ts:33:15)\n    at async POST /charges (/app/src/routes/charges.ts:52:9)",
+    "trace_id": "fab16ab97d99b4ebec9a0c01f6b66b44"
   },
   {
     "id": "evt-0009",
@@ -96,6 +102,7 @@
     "version": "2026.8.31-a4f21c9",
     "exception_type": "ValidationError",
     "message": "Coupon code \"SUMMER25\" has expired",
-    "stack_trace": "ValidationError: Coupon code \"SUMMER25\" has expired\n    at validateCoupon (/app/src/checkout/promotions.ts:57:11)\n    at applyPromotion (/app/src/checkout/pricing.ts:118:5)\n    at buildOrderSummary (/app/src/checkout/summary.ts:88:22)"
+    "stack_trace": "ValidationError: Coupon code \"SUMMER25\" has expired\n    at validateCoupon (/app/src/checkout/promotions.ts:57:11)\n    at applyPromotion (/app/src/checkout/pricing.ts:118:5)\n    at buildOrderSummary (/app/src/checkout/summary.ts:88:22)",
+    "trace_id": "e4881dca63fbed78545fa0cb992915e1"
   }
 ]

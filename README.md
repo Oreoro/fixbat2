@@ -237,6 +237,15 @@ Four gates run in cost order, so nothing expensive runs unprotected:
 with the line number dropped so an edit above the fault does not mint a new
 incident. Without it one bad deploy floods the channel.
 
+**The trace id is stored beside the fingerprint, never inside it.** They answer
+different questions: the fingerprint asks *which bug is this*, a trace id asks
+*what else happened in the request this fired in*. A trace id is unique per
+request, so hashing one into the fingerprint would give every occurrence its own
+identity and destroy dedupe entirely — the flood the fingerprint exists to
+prevent. FixBat reads `trace.id` (falling back to `transaction.id`) from the log
+source, keeps the most recent one per incident, and shows it on the incident
+page. `test/trace.py` holds that separation in place.
+
 **The cursor advances only after a successful fetch.** If the log source throws,
 the window is retried rather than skipped — advancing over a failed window would
 skip it permanently and silently.
@@ -325,6 +334,12 @@ curl -X POST "$URL/admin/settings" -H "authorization: Bearer $ADMIN_TOKEN" \
 # Change the daily spend ceiling
 curl -X POST "$URL/admin/settings" -H "authorization: Bearer $ADMIN_TOKEN" \
   -H 'content-type: application/json' -d '{"daily_brief_limit":25}'
+
+# Make trace ids clickable — {traceId} is substituted per incident.
+# Without this the id is shown as copyable text and nothing more.
+curl -X POST "$URL/admin/settings" -H "authorization: Bearer $ADMIN_TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"trace_url_template":"https://kibana.example.com/app/apm/traces/{traceId}"}'
 ```
 
 The cron runs every 5 minutes. Cost is roughly $0.10 per brief on Opus 5, so the
@@ -339,7 +354,7 @@ npm run dev      # in one shell
 npm test         # in another
 ```
 
-99 checks over four suites, all against a real server — no mocks.
+116 checks over five suites, all against a real server — no mocks.
 
 `test/audit.py` walks the whole product from an empty deployment — claim, demo,
 triage, dedupe, Slack, resolution, guardrails, security headers, audit trail.
@@ -348,6 +363,8 @@ triage, dedupe, Slack, resolution, guardrails, security headers, audit trail.
 `test/onboarding.py` covers what a new deployment ships with and whether the
 cron uses credentials entered in the browser — the failures a health check
 cannot see, because the product stays green while doing nothing real.
+`test/trace.py` covers per-request correlation, and reimplements the
+fingerprint independently so that folding a trace id into it fails the build.
 
 `npm run dev` passes `--test-scheduled`, which is what lets the suite trigger
 the cron on demand at `/__scheduled`. The tests read the database name from

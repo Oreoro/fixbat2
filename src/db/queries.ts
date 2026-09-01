@@ -37,14 +37,19 @@ export async function upsertIncident(
       `INSERT INTO incidents (
          id, fingerprint, service, environment, severity, exception_type, message,
          stack_trace, version, occurrences, first_seen, last_seen, status,
-         is_demo, created_at, updated_at
-       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, ?10, ?10, 'new', ?12, ?11, ?11)
+         is_demo, created_at, updated_at, trace_id
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, ?10, ?10, 'new', ?12, ?11, ?11, ?13)
        ON CONFLICT (fingerprint) DO UPDATE SET
          occurrences = occurrences + 1,
          last_seen   = excluded.last_seen,
          severity    = excluded.severity,
          version     = excluded.version,
-         updated_at  = excluded.updated_at
+         updated_at  = excluded.updated_at,
+         -- Latest wins: an incident that is firing now is best debugged from
+         -- its most recent trace, which is likeliest to still be in the APM's
+         -- retention window. COALESCE so an occurrence that carries no trace
+         -- does not erase one that did.
+         trace_id    = COALESCE(excluded.trace_id, incidents.trace_id)
        RETURNING *`,
     )
     .bind(
@@ -60,6 +65,7 @@ export async function upsertIncident(
       event.occurredAt,
       ts,
       isDemo ? 1 : 0,
+      event.traceId ?? null,
     )
     .first<IncidentRow>();
 
@@ -227,19 +233,25 @@ export async function getSettings(db: D1Database): Promise<SettingsRow> {
 
 export async function updateSettings(
   db: D1Database,
-  patch: { kill_switch?: boolean; kill_switch_reason?: string; daily_brief_limit?: number },
+  patch: {
+    kill_switch?: boolean;
+    kill_switch_reason?: string;
+    daily_brief_limit?: number;
+    trace_url_template?: string;
+  },
 ): Promise<void> {
   const current = await getSettings(db);
   await db
     .prepare(
       `UPDATE settings SET kill_switch = ?1, kill_switch_reason = ?2,
-              daily_brief_limit = ?3, updated_at = ?4 WHERE id = 1`,
+              daily_brief_limit = ?3, trace_url_template = ?5, updated_at = ?4 WHERE id = 1`,
     )
     .bind(
       patch.kill_switch === undefined ? current.kill_switch : patch.kill_switch ? 1 : 0,
       patch.kill_switch_reason ?? current.kill_switch_reason,
       patch.daily_brief_limit ?? current.daily_brief_limit,
       now(),
+      patch.trace_url_template ?? current.trace_url_template,
     )
     .run();
 }

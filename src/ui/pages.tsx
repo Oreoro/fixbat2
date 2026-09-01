@@ -669,6 +669,32 @@ export function IncidentPage(d: DetailInput) {
                   "Fingerprint",
                   <Island name="copy" props={{ text: incident.fingerprint, label: "Copy fingerprint" }} />,
                 ],
+                // The correlation id for the request this fired in — the way
+                // across to whatever else happened in it. Shown only when the
+                // log source emitted one, and linked only when the operator has
+                // said where their traces live.
+                ...(incident.trace_id
+                  ? ([
+                      [
+                        "Trace",
+                        d.settings.trace_url_template ? (
+                          <Link
+                            href={d.settings.trace_url_template.replace(
+                              "{traceId}",
+                              encodeURIComponent(incident.trace_id),
+                            )}
+                          >
+                            {incident.trace_id}
+                          </Link>
+                        ) : (
+                          <Island
+                            name="copy"
+                            props={{ text: incident.trace_id, label: "Copy trace id" }}
+                          />
+                        ),
+                      ],
+                    ] as Array<[string, ReactNode]>)
+                  : []),
                 ...(d.ticketUrl
                   ? ([["Issue", <Link href={d.ticketUrl}>{d.ticketUrl}</Link>]] as Array<[string, ReactNode]>)
                   : []),

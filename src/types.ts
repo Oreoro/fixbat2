@@ -24,6 +24,12 @@ export interface LogEvent {
   exceptionType: string;
   message: string;
   stackTrace: string;
+  /**
+   * Correlation id for the request this error happened in, when the source
+   * emits one. Context only — never part of the fingerprint, because a value
+   * that is unique per request would give every occurrence its own identity.
+   */
+  traceId: string | null;
 }
 
 /**
@@ -110,6 +116,8 @@ export interface SettingsRow {
   kill_switch: number;
   kill_switch_reason: string;
   daily_brief_limit: number;
+  /** Link target for a trace id, with a {traceId} placeholder. Empty = no link. */
+  trace_url_template: string;
   updated_at: string;
 }
 
@@ -129,6 +137,7 @@ export interface IncidentRow {
   status: IncidentStatus;
   slack_channel: string | null;
   slack_ts: string | null;
+  trace_id: string | null;
   resolution: Resolution | null;
   resolved_at: string | null;
   resolved_by: string | null;

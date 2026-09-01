@@ -634,6 +634,7 @@ app.post("/admin/settings", admin, async (c) => {
     kill_switch?: boolean;
     kill_switch_reason?: string;
     daily_brief_limit?: number;
+    trace_url_template?: string;
   }>();
   await db.updateSettings(c.env.DB, body ?? {});
   return c.json({ ok: true, settings: await db.getSettings(c.env.DB) });
