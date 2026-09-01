@@ -48,8 +48,11 @@ export async function handleInteraction(deps: Deps, payload: Interaction): Promi
 }
 
 export async function fileIssue(deps: Deps, incident: IncidentRow, userId: string): Promise<void> {
+  // Returning quietly here meant the button appeared to work and nothing
+  // happened. The web route turns this into a visible message; the Slack
+  // handler logs it.
   const brief = await db.getBrief(deps.env.DB, incident.id);
-  if (!brief) return;
+  if (!brief) throw new Error("This incident has no brief yet, so there is nothing to file.");
 
   const existing = await db.claimTicket(deps.env.DB, incident.id, {
     externalId: "",
@@ -58,7 +61,12 @@ export async function fileIssue(deps: Deps, incident: IncidentRow, userId: strin
   });
 
   // Someone already filed this one; the refresh below will show their link.
-  if (existing.alreadyExisted) {
+  // A reservation with no url is an issue creation that never finished — the
+  // worker was evicted between claiming the row and writing the result. Left
+  // alone it blocked the incident from ever being filed again, because every
+  // later attempt matched the empty row and returned as a duplicate. Only a
+  // reservation that carries a real url is a genuine double-click.
+  if (existing.alreadyExisted && existing.url) {
     await db.logEvent(deps.env.DB, incident.id, "file_issue_duplicate", userId);
     return;
   }

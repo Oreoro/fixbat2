@@ -247,6 +247,13 @@ prevent. FixBat reads `trace.id` (falling back to `transaction.id`) from the log
 source, keeps the most recent one per incident, and shows it on the incident
 page. `test/trace.py` holds that separation in place.
 
+**An incident that was never briefed is retried, not written off.** A repeat is
+only a duplicate if the original has a brief *and* was delivered. Anything else
+— an error that arrived before its service was registered, one deferred by the
+daily cap, one whose delivery failed — is unfinished work, and the next run
+completes it. Re-diagnosis is skipped when a brief already exists, so recovery
+costs a delivery, never a second model call.
+
 **The cursor advances only after a successful fetch.** If the log source throws,
 the window is retried rather than skipped — advancing over a failed window would
 skip it permanently and silently.
@@ -355,7 +362,7 @@ npm run dev      # in one shell
 npm test         # in another
 ```
 
-116 checks over five suites, all against a real server — no mocks.
+134 checks over six suites, all against a real server — no mocks.
 
 `test/audit.py` walks the whole product from an empty deployment — claim, demo,
 triage, dedupe, Slack, resolution, guardrails, security headers, audit trail.
@@ -366,6 +373,9 @@ cron uses credentials entered in the browser — the failures a health check
 cannot see, because the product stays green while doing nothing real.
 `test/trace.py` covers per-request correlation, and reimplements the
 fingerprint independently so that folding a trace id into it fails the build.
+`test/pipeline.py` covers recovery: incidents that arrived before their service
+was registered, ticket lookups past the first 200 incidents, and a filing that
+died mid-flight.
 
 `npm run dev` passes `--test-scheduled`, which is what lets the suite trigger
 the cron on demand at `/__scheduled`. The tests read the database name from

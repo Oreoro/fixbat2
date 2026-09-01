@@ -437,6 +437,39 @@ export async function listIncidents(db: D1Database, limit = 50): Promise<Inciden
 }
 
 /**
+ * The ticket and latest disposition for ONE incident.
+ *
+ * Both were previously read by scanning `listIncidents(db, 200)` and calling
+ * `.find()` on the result. Past 200 incidents that scan silently stops
+ * containing the row: the incident page dropped its Issue link, and the Slack
+ * message re-rendered as if it had never been filed — bringing the "File
+ * issue" button back and inviting a duplicate.
+ */
+export interface IncidentExtras {
+  ticket_url: string | null;
+  disposition: string | null;
+}
+
+export async function getIncidentExtras(
+  db: D1Database,
+  incidentId: string,
+): Promise<IncidentExtras> {
+  const row = await db
+    .prepare(
+      `SELECT t.url AS ticket_url,
+              (SELECT kind FROM dispositions d
+                WHERE d.incident_id = ?1
+                ORDER BY d.created_at DESC LIMIT 1) AS disposition
+         FROM incidents i
+         LEFT JOIN tickets t ON t.incident_id = i.id
+        WHERE i.id = ?1`,
+    )
+    .bind(incidentId)
+    .first<IncidentExtras>();
+  return row ?? { ticket_url: null, disposition: null };
+}
+
+/**
  * UNIQUE(incident_id) plus INSERT OR IGNORE means a double-clicked button
  * produces one ticket and a link to it, with no locking.
  */

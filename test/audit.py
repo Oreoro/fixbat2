@@ -146,7 +146,18 @@ req("/setup/kill","POST",form={"kill_switch":"0"})
 req("/admin/settings","POST",body={"daily_brief_limit":2},token=TOKEN)
 d1("DELETE FROM incidents WHERE 1=1"); d1("DELETE FROM cursors"); d1("DELETE FROM briefs")
 r = json.loads(req("/admin/ingest","POST",token=TOKEN)[1])
-chk("daily cap enforced", (r["briefed"], r["capped"]), (2, 6))
+# A repeat of an incident that was itself capped has no brief and was never
+# delivered, so it is pending — capped — rather than a duplicate of something
+# already sent. It used to be miscounted as deduped, which hid the fact that
+# nothing would ever go back for it.
+chk("daily cap enforced", (r["briefed"], r["capped"]), (2, 7))
+
+# The cap has to defer work, not discard it.
+req("/admin/settings","POST",body={"daily_brief_limit":50},token=TOKEN)
+d1("DELETE FROM cursors")
+r2 = json.loads(req("/admin/ingest","POST",token=TOKEN)[1])
+chk("raising the cap drains the backlog", r2["briefed"] >= 6, True)
+chk("...leaving nothing capped", r2["capped"], 0)
 req("/admin/settings","POST",body={"daily_brief_limit":50},token=TOKEN)
 
 print("\n9. SECURITY")

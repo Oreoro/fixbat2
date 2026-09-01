@@ -92,7 +92,7 @@ export async function run(deps: Deps): Promise<RunSummary> {
       else if (outcome.kind === "capped") summary.capped++;
       else {
         summary.briefed++;
-        budget--;
+        if (outcome.diagnosed) budget--;
       }
       if (outcome.incident) summary.incidents.push(outcome.incident);
     } catch (error) {
@@ -113,6 +113,9 @@ export async function run(deps: Deps): Promise<RunSummary> {
 
 type Outcome = {
   kind: "briefed" | "deduped" | "unmapped" | "capped";
+  /** Set only when a model call was actually made, so the caller charges the
+   *  daily budget for spend rather than for delivery. */
+  diagnosed?: boolean;
   incident?: { id: string; service: string; status: string; occurrences: number };
 };
 
@@ -135,14 +138,37 @@ async function handle(deps: Deps, event: LogEvent, budget: number): Promise<Outc
 
   // Gate 2 — a repeat of something already briefed bumps the count on the
   // existing message rather than posting a second one.
-  if (!isNew) {
+  /**
+   * A repeat that already has a brief and has been delivered is a true
+   * duplicate: bump the counter and re-render the existing message.
+   *
+   * A repeat with neither is unfinished work, not a duplicate. The ordinary
+   * way to get one is the documented onboarding order — errors arrive before
+   * the client has registered that service, so they land `unmapped`. Returning
+   * early here meant registering the service afterwards fixed nothing: those
+   * incidents stayed unmapped with no brief for ever, and the client saw a list
+   * of incidents and zero briefs.
+   */
+  const existing = isNew ? null : await db.getBrief(env.DB, incident.id);
+  if (existing && incident.slack_ts) {
     await db.logEvent(env.DB, incident.id, "deduped", `occurrence ${incident.occurrences}`);
     await refreshPostedMessage(deps, incident.id);
     return { kind: "deduped", incident: brief(incident) };
   }
 
-  // Gate 3 — daily cap. Queued as `new`, so a later run picks it up.
-  if (budget <= 0) {
+  if (!isNew) {
+    await db.logEvent(
+      env.DB,
+      incident.id,
+      "retried",
+      existing ? "brief written but never delivered" : "no brief yet — completing it now",
+    );
+  }
+
+  // Gate 3 — daily cap. Queued as `new`, so a later run picks it up. Only
+  // diagnosis costs money: an incident that already has a brief and merely
+  // needs delivering is not charged, or a Slack outage could exhaust the cap.
+  if (!existing && budget <= 0) {
     await db.logEvent(env.DB, incident.id, "capped", "daily brief limit reached");
     return { kind: "capped", incident: brief(incident) };
   }
@@ -167,15 +193,17 @@ async function handle(deps: Deps, event: LogEvent, budget: number): Promise<Outc
     team: service.team,
   };
 
-  const diagnosis = await diagnoser.diagnose(evidence);
-  await db.saveBrief(env.DB, incident.id, diagnosis, commits);
-  await db.setStatus(env.DB, incident.id, "briefed");
-  await db.logEvent(
-    env.DB,
-    incident.id,
-    "briefed",
-    `${diagnosis.source} in ${diagnosis.durationMs}ms`,
-  );
+  if (!existing) {
+    const diagnosis = await diagnoser.diagnose(evidence);
+    await db.saveBrief(env.DB, incident.id, diagnosis, commits);
+    await db.setStatus(env.DB, incident.id, "briefed");
+    await db.logEvent(
+      env.DB,
+      incident.id,
+      "briefed",
+      `${diagnosis.source} in ${diagnosis.durationMs}ms`,
+    );
+  }
 
   // The brief posts as drafted. If a verification step is ever wanted, it goes
   // exactly here — between the brief being written and anyone seeing it.
@@ -191,7 +219,11 @@ async function handle(deps: Deps, event: LogEvent, budget: number): Promise<Outc
     await db.logEvent(env.DB, incident.id, "posted", slack.live ? posted.ts : "simulated");
   }
 
-  return { kind: "briefed", incident: { ...brief(incident), status: "posted" } };
+  return {
+    kind: "briefed",
+    diagnosed: !existing,
+    incident: { ...brief(incident), status: "posted" },
+  };
 }
 
 function brief(incident: { id: string; service: string; status: string; occurrences: number }) {
@@ -212,15 +244,14 @@ export async function refreshPostedMessage(deps: Deps, incidentId: string): Prom
   if (!incident || !row || !incident.slack_channel || !incident.slack_ts) return;
 
   const service = await db.getService(env.DB, incident.service);
-  const listed = await db.listIncidents(env.DB, 200);
-  const current = listed.find((r) => r.id === incidentId);
+  const current = await db.getIncidentExtras(env.DB, incidentId);
 
   const blocks = renderBrief({
     incident,
     brief: row,
     repo: service?.repo ?? "",
-    ticketUrl: current?.ticket_url ?? null,
-    disposition: current?.disposition ?? null,
+    ticketUrl: current.ticket_url,
+    disposition: current.disposition,
   });
 
   await slack.update(

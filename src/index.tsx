@@ -225,12 +225,12 @@ app.get("/incident/:id", viewer, async (c) => {
   const incident = await db.getIncident(c.env.DB, id);
   if (!incident) return c.text("not found", 404);
 
-  const [brief, service, events, settings, listed] = await Promise.all([
+  const [brief, service, events, settings, extras] = await Promise.all([
     db.getBrief(c.env.DB, id),
     db.getService(c.env.DB, incident.service),
     db.listEvents(c.env.DB, id),
     db.getSettings(c.env.DB),
-    db.listIncidents(c.env.DB, 200),
+    db.getIncidentExtras(c.env.DB, id),
   ]);
 
   return c.html(
@@ -241,8 +241,8 @@ app.get("/incident/:id", viewer, async (c) => {
         service={service}
         events={events}
         settings={settings}
-        ticketUrl={listed.find((r) => r.id === id)?.ticket_url ?? null}
-        disposition={listed.find((r) => r.id === id)?.disposition ?? null}
+        ticketUrl={extras.ticket_url}
+        disposition={extras.disposition}
         error={c.req.query("error") ?? undefined}
         who={await whoIs(c)}
         cssHref={CSS_HREF}
