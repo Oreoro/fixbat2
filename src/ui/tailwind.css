@@ -1,0 +1,8 @@
+@import "tailwindcss";
+@import "@cloudflare/kumo/styles/tailwind";
+
+/* Our own components... */
+@source "../**/*.tsx";
+/* ...and Kumo's, whose utility classes live in its compiled JS. Without this
+   the library's own badge/button/banner classes are never emitted. */
+@source "../../node_modules/@cloudflare/kumo/dist";

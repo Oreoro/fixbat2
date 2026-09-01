@@ -1,0 +1,43 @@
+# FixBat configuration
+#
+# In production these are Cloudflare secrets, not a file:
+#   npx wrangler secret put ANTHROPIC_API_KEY
+# `npm run setup` walks you through all of them interactively.
+#
+# For local development, copy this file to .dev.vars (gitignored) and fill in
+# whatever you want to be real. Anything you leave out stays simulated, so the
+# platform runs end to end with an entirely empty file.
+
+# ---- admin access ----------------------------------------------------------
+# OPTIONAL. Leave blank for a one-click deploy: the first person to open the
+# site claims it, and FixBat generates the token for them.
+# Set it explicitly for CI or scripted installs — an explicit value always wins.
+ADMIN_TOKEN=
+
+# ---- diagnosis -------------------------------------------------------------
+# Without this FixBat writes canned briefs keyed to the sample errors.
+# Get one from console.anthropic.com (an API key, not a Claude.ai subscription).
+ANTHROPIC_API_KEY=
+
+# ---- delivery --------------------------------------------------------------
+# Bot token needs the chat:write scope; invite the bot to each channel.
+SLACK_BOT_TOKEN=
+# Required for the Slack buttons to work. Set the app's Interactivity URL to
+# https://<your-worker>/slack/actions
+SLACK_SIGNING_SECRET=
+
+# ---- code context ----------------------------------------------------------
+# Needs contents:read (commit history) and issues:write (filing issues).
+GITHUB_TOKEN=
+
+# ---- log source ------------------------------------------------------------
+# Without these FixBat reads the bundled sample errors in fixtures/.
+# The cluster must be reachable from Cloudflare's network.
+ELASTICSEARCH_URL=
+ELASTICSEARCH_API_KEY=
+
+# ---- visibility ------------------------------------------------------------
+# Incident briefs contain production stack traces, internal file paths and repo
+# names, so the UI requires a sign-in by default.
+# Set to "true" only if you want incident data readable without signing in.
+PUBLIC_READ=

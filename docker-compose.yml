@@ -1,0 +1,26 @@
+services:
+  fixbat:
+    build: .
+    ports:
+      - "8787:8787"
+    # Every variable is optional. Anything unset stays simulated, so this
+    # works with no .dev.vars file at all.
+    env_file:
+      - path: .dev.vars
+        required: false
+    volumes:
+      # Live-reload source, but keep the container's node_modules and the
+      # local D1 state so they survive rebuilds.
+      - ./src:/app/src
+      - ./fixtures:/app/fixtures
+      - ./migrations:/app/migrations
+      - fixbat-state:/app/.wrangler
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8787/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
+
+volumes:
+  fixbat-state:

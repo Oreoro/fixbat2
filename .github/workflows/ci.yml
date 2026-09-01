@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+
+      # A committed database_id names one database in one Cloudflare account.
+      # Shipping one would point every client's deployment at somebody else's
+      # data, so it is a build failure rather than a review comment.
+      - name: No account-specific database id is committed
+        run: |
+          if grep -q '"database_id"' wrangler.jsonc; then
+            echo "::error file=wrangler.jsonc::wrangler.jsonc contains a database_id."
+            echo "It identifies one database in one account and must not be committed."
+            exit 1
+          fi
+
+      # Build first: typecheck should run against freshly generated assets, and
+      # the generated stylesheet and island bundle are committed so a one-click
+      # deploy works even where the platform's build step does not run.
+      - run: npm run build
+
+      - name: Committed assets match a fresh build
+        run: |
+          if ! git diff --quiet -- src/ui/kumo.css src/ui/client-bundle.txt; then
+            echo "::error::src/ui/kumo.css or src/ui/client-bundle.txt is stale."
+            echo "Run 'npm run build' and commit the result."
+            git diff --stat -- src/ui/kumo.css src/ui/client-bundle.txt
+            exit 1
+          fi
+
+      - run: npm run typecheck
+
+      - run: npm run db:local
+
+      # The suites drive a real server rather than mocks, so it has to be up.
+      # Started here rather than in its own step: a background process is not
+      # guaranteed to survive between steps.
+      - name: Test
+        run: |
+          npx wrangler dev --port 8787 --test-scheduled > /tmp/dev.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -fsS http://localhost:8787/health >/dev/null 2>&1 && break
+            sleep 1
+          done
+          if ! curl -fsS http://localhost:8787/health >/dev/null 2>&1; then
+            echo "::error::the worker never became healthy"
+            cat /tmp/dev.log
+            exit 1
+          fi
+          npm test
+
+      - name: Worker log
+        if: failure()
+        run: cat /tmp/dev.log || true

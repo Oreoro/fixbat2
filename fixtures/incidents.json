@@ -1,0 +1,101 @@
+[
+  {
+    "id": "evt-0001",
+    "service": "checkout-service",
+    "environment": "production",
+    "severity": "critical",
+    "minutes_ago": 4,
+    "version": "2026.8.31-a4f21c9",
+    "exception_type": "TypeError",
+    "message": "Cannot read properties of undefined (reading 'total')",
+    "stack_trace": "TypeError: Cannot read properties of undefined (reading 'total')\n    at applyPromotion (/app/src/checkout/pricing.ts:142:31)\n    at buildOrderSummary (/app/src/checkout/summary.ts:88:22)\n    at async POST /checkout/confirm (/app/src/routes/checkout.ts:57:18)\n    at async Layer.handle (/app/node_modules/express/lib/router/layer.js:95:5)"
+  },
+  {
+    "id": "evt-0002",
+    "service": "checkout-service",
+    "environment": "production",
+    "severity": "critical",
+    "minutes_ago": 3,
+    "version": "2026.8.31-a4f21c9",
+    "exception_type": "TypeError",
+    "message": "Cannot read properties of undefined (reading 'total')",
+    "stack_trace": "TypeError: Cannot read properties of undefined (reading 'total')\n    at applyPromotion (/app/src/checkout/pricing.ts:142:31)\n    at buildOrderSummary (/app/src/checkout/summary.ts:88:22)\n    at async POST /checkout/confirm (/app/src/routes/checkout.ts:57:18)\n    at async Layer.handle (/app/node_modules/express/lib/router/layer.js:95:5)"
+  },
+  {
+    "id": "evt-0003",
+    "service": "payments-api",
+    "environment": "production",
+    "severity": "high",
+    "minutes_ago": 11,
+    "version": "2026.8.29-77bd014",
+    "exception_type": "TimeoutError",
+    "message": "Knex: Timeout acquiring a connection. The pool is probably full.",
+    "stack_trace": "TimeoutError: Knex: Timeout acquiring a connection. The pool is probably full.\n    at Client_PG.acquireConnection (/app/node_modules/knex/lib/client.js:307:26)\n    at async settleBatch (/app/src/payments/settlement.ts:203:20)\n    at async runSettlementCycle (/app/src/payments/settlement.ts:64:5)\n    at async Timeout._onTimeout (/app/src/jobs/scheduler.ts:41:7)"
+  },
+  {
+    "id": "evt-0004",
+    "service": "payments-api",
+    "environment": "production",
+    "severity": "high",
+    "minutes_ago": 18,
+    "version": "2026.8.29-77bd014",
+    "exception_type": "ZodError",
+    "message": "Expected string, received null at \"customer.taxId\"",
+    "stack_trace": "ZodError: Expected string, received null at \"customer.taxId\"\n    at ZodObject.parse (/app/node_modules/zod/lib/types.js:598:22)\n    at normalizeCustomer (/app/src/payments/customer.ts:76:34)\n    at createInvoice (/app/src/payments/invoice.ts:119:18)\n    at async POST /invoices (/app/src/routes/invoices.ts:34:16)"
+  },
+  {
+    "id": "evt-0005",
+    "service": "inventory-worker",
+    "environment": "production",
+    "severity": "medium",
+    "minutes_ago": 27,
+    "version": "2026.8.30-1c0e8ab",
+    "exception_type": "RangeError",
+    "message": "Maximum call stack size exceeded",
+    "stack_trace": "RangeError: Maximum call stack size exceeded\n    at resolveVariantTree (/app/src/inventory/variants.ts:91:12)\n    at resolveVariantTree (/app/src/inventory/variants.ts:97:24)\n    at resolveVariantTree (/app/src/inventory/variants.ts:97:24)\n    at expandCatalog (/app/src/inventory/catalog.ts:158:9)"
+  },
+  {
+    "id": "evt-0006",
+    "service": "checkout-service",
+    "environment": "production",
+    "severity": "high",
+    "minutes_ago": 34,
+    "version": "2026.8.31-a4f21c9",
+    "exception_type": "FetchError",
+    "message": "request to https://api.stripe.com/v1/charges failed, reason: socket hang up",
+    "stack_trace": "FetchError: request to https://api.stripe.com/v1/charges failed, reason: socket hang up\n    at ClientRequest.<anonymous> (/app/node_modules/node-fetch/lib/index.js:1491:11)\n    at chargeCard (/app/src/checkout/payment.ts:64:20)\n    at async POST /checkout/confirm (/app/src/routes/checkout.ts:71:22)"
+  },
+  {
+    "id": "evt-0007",
+    "service": "inventory-worker",
+    "environment": "production",
+    "severity": "medium",
+    "minutes_ago": 52,
+    "version": "2026.8.30-1c0e8ab",
+    "exception_type": "SyntaxError",
+    "message": "Unexpected token < in JSON at position 0",
+    "stack_trace": "SyntaxError: Unexpected token < in JSON at position 0\n    at JSON.parse (<anonymous>)\n    at fetchSupplierFeed (/app/src/inventory/suppliers.ts:48:26)\n    at async syncSuppliers (/app/src/inventory/sync.ts:112:19)"
+  },
+  {
+    "id": "evt-0008",
+    "service": "payments-api",
+    "environment": "production",
+    "severity": "critical",
+    "minutes_ago": 68,
+    "version": "2026.8.29-77bd014",
+    "exception_type": "ReplyError",
+    "message": "READONLY You can't write against a read only replica.",
+    "stack_trace": "ReplyError: READONLY You can't write against a read only replica.\n    at parseError (/app/node_modules/redis-parser/lib/parser.js:179:12)\n    at cacheIdempotencyKey (/app/src/payments/idempotency.ts:33:15)\n    at async POST /charges (/app/src/routes/charges.ts:52:9)"
+  },
+  {
+    "id": "evt-0009",
+    "service": "checkout-service",
+    "environment": "production",
+    "severity": "low",
+    "minutes_ago": 95,
+    "version": "2026.8.31-a4f21c9",
+    "exception_type": "ValidationError",
+    "message": "Coupon code \"SUMMER25\" has expired",
+    "stack_trace": "ValidationError: Coupon code \"SUMMER25\" has expired\n    at validateCoupon (/app/src/checkout/promotions.ts:57:11)\n    at applyPromotion (/app/src/checkout/pricing.ts:118:5)\n    at buildOrderSummary (/app/src/checkout/summary.ts:88:22)"
+  }
+]

@@ -1,0 +1,27 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "fixbat",
+  "main": "src/index.tsx",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+
+  // `database_id` is deliberately absent. It is optional in wrangler's schema,
+  // and it identifies one specific database in one specific Cloudflare account —
+  // committing one would point every client's deployment at somebody else's D1.
+  //
+  // It is filled in per-account: the Deploy to Cloudflare button provisions a
+  // database and writes it, and `npm run setup` does the same from a terminal.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "fixbat",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
+  "vars": {}
+}

@@ -1,0 +1,10 @@
+node_modules/
+.wrangler/
+dist/
+
+# Local credentials. `.env.example` is the template; the real file never ships.
+.dev.vars
+.env
+
+.DS_Store
+*.log
