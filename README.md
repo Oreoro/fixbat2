@@ -94,6 +94,27 @@ first run against the empty volume comes up with a working schema rather than
 
 ---
 
+## Checking your credentials
+
+A wrong key looks exactly like an unconfigured one: the provider falls back to
+simulated and the deployment goes on reporting healthy. So don't infer it — ask:
+
+```bash
+curl -X POST "$URL/admin/verify" -H "authorization: Bearer $ADMIN_TOKEN"
+```
+
+Every check is the provider's own identity call — `auth.test` for Slack,
+`/user` for GitHub, `myself` for Jira — so the answer is definitive and comes
+back in the provider's own words (`401: Bad credentials`). The same thing is a
+button on `/setup`. It costs nothing except a single one-token Anthropic call.
+
+Every outbound call has a 10-second deadline and retries twice on 429 or 5xx,
+honouring `Retry-After`. Reads retry; anything that creates a ticket or posts to
+Slack does not, because a retry after a request that actually landed would file
+the issue twice.
+
+---
+
 ## Configuration
 
 **Nothing is required.** FixBat runs entirely on bundled sample data until you
@@ -214,7 +235,9 @@ Set `PUBLIC_READ=true` to opt a deployment into anonymous read access.
 | `POST /admin/ingest` | bearer | Run the pipeline |
 | `POST /admin/reset` | bearer | Clear all incident data |
 | `POST /admin/services` | bearer | Add or update a service |
-| `POST /admin/settings` | bearer | Kill switch, daily limit |
+| `POST /admin/settings` | bearer | Kill switch, daily limit, trace links, log source |
+| `POST /admin/verify` | bearer | Check every configured credential actually works |
+| `POST /ingest` | ingest token | Push errors FixBat cannot reach |
 
 ¹ Open to anonymous readers when `PUBLIC_READ=true`.
 
@@ -414,7 +437,7 @@ npm run dev      # in one shell
 npm test         # in another
 ```
 
-190 checks over eight suites, all against a real server — no mocks.
+267 checks over nine suites, all against a real server — no mocks.
 
 `test/audit.py` walks the whole product from an empty deployment — claim, demo,
 triage, dedupe, Slack, resolution, guardrails, security headers, audit trail.
@@ -433,6 +456,8 @@ each with a framework frame *above* the application frame, so a parser that
 took the first readable line would fail all seven.
 `test/providers.py` covers which provider is live and why, including that the
 issue tracker is chosen independently of the code host.
+`test/api.py` is the API contract: every route, the credentials it demands, the
+codes it returns and how it answers something malformed.
 
 `npm run dev` passes `--test-scheduled`, which is what lets the suite trigger
 the cron on demand at `/__scheduled`. The tests read the database name from

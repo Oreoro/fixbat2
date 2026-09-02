@@ -1,4 +1,5 @@
 import type { Env } from "../types";
+import { callExternal } from "../providers/http";
 
 export interface PostResult {
   channel: string;
@@ -27,7 +28,11 @@ export function slackClient(env: Env): SlackClient {
   }
 
   const call = async (method: string, body: unknown) => {
-    const res = await fetch(`https://slack.com/api/${method}`, {
+    // Posting is not idempotent either — a retry after a message that landed
+    // would post it twice. The timeout is the point here.
+    const res = await callExternal(`https://slack.com/api/${method}`, {
+      what: `slack ${method}`,
+      retry: false,
       method: "POST",
       headers: {
         "content-type": "application/json; charset=utf-8",

@@ -1,4 +1,5 @@
 import type { Env } from "../types";
+import { callExternal } from "./http";
 
 /**
  * Where a brief becomes a ticket.
@@ -40,7 +41,9 @@ export function githubIssues(env: Env): TicketProvider {
     name: "github",
     live: true,
     async create(target, title, body) {
-      const res = await fetch(`https://api.github.com/repos/${target.repo}/issues`, {
+      const res = await callExternal(`https://api.github.com/repos/${target.repo}/issues`, {
+        what: "github issue",
+        retry: false,
         method: "POST",
         headers: {
           accept: "application/vnd.github+json",
@@ -65,9 +68,11 @@ export function gitlabIssues(env: Env): TicketProvider {
     name: "gitlab",
     live: true,
     async create(target, title, body) {
-      const res = await fetch(
+      const res = await callExternal(
         `${host}/api/v4/projects/${encodeURIComponent(target.repo)}/issues`,
         {
+          what: "gitlab issue",
+          retry: false,
           method: "POST",
           headers: { "private-token": env.GITLAB_TOKEN ?? "", "content-type": "application/json" },
           body: JSON.stringify({ title, description: body }),
@@ -93,7 +98,9 @@ export function jiraTickets(env: Env): TicketProvider {
     name: "jira",
     live: true,
     async create(_target, title, body) {
-      const res = await fetch(`${host}/rest/api/3/issue`, {
+      const res = await callExternal(`${host}/rest/api/3/issue`, {
+        what: "jira issue",
+        retry: false,
         method: "POST",
         headers: {
           authorization: `Basic ${btoa(`${env.JIRA_EMAIL ?? ""}:${env.JIRA_TOKEN ?? ""}`)}`,
@@ -138,7 +145,9 @@ export function linearTickets(env: Env): TicketProvider {
     name: "linear",
     live: true,
     async create(_target, title, body) {
-      const res = await fetch("https://api.linear.app/graphql", {
+      const res = await callExternal("https://api.linear.app/graphql", {
+        what: "linear issue",
+        retry: false,
         method: "POST",
         headers: { authorization: env.LINEAR_TOKEN ?? "", "content-type": "application/json" },
         body: JSON.stringify({
@@ -174,9 +183,11 @@ export function azureDevOpsWorkItems(env: Env): TicketProvider {
     name: "azuredevops",
     live: true,
     async create(_target, title, body) {
-      const res = await fetch(
+      const res = await callExternal(
         `https://dev.azure.com/${org}/${encodeURIComponent(project)}/_apis/wit/workitems/$Bug?api-version=7.1`,
         {
+          what: "azuredevops work item",
+          retry: false,
           method: "POST",
           headers: {
             authorization: `Basic ${btoa(`:${env.AZDO_TOKEN ?? ""}`)}`,

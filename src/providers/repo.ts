@@ -1,4 +1,5 @@
 import type { Commit, Env } from "../types";
+import { callExternal, expectOk } from "./http";
 
 /** A window of real source around the failing line. */
 export interface SourceExcerpt {
@@ -53,7 +54,7 @@ export function githubRepo(env: Env): RepoSource {
       url.searchParams.set("path", path);
       url.searchParams.set("per_page", String(limit));
 
-      const res = await fetch(url, { headers });
+      const res = await callExternal(url, { what: "github", headers });
       if (!res.ok) {
         throw new Error(`github ${res.status}: ${(await res.text()).slice(0, 200)}`);
       }
@@ -70,10 +71,10 @@ export function githubRepo(env: Env): RepoSource {
     },
 
     async readSource(repo, path, line, radius) {
-      const res = await fetch(
-        `https://api.github.com/repos/${repo}/contents/${encodeURI(path)}`,
-        { headers: { ...headers, accept: "application/vnd.github.raw" } },
-      );
+      const res = await callExternal(`https://api.github.com/repos/${repo}/contents/${encodeURI(path)}`, {
+        what: "github contents",
+        headers: { ...headers, accept: "application/vnd.github.raw" },
+      });
       // A file that has since moved or been deleted is not an error worth
       // failing the brief over.
       if (res.status === 404) return null;
@@ -81,7 +82,10 @@ export function githubRepo(env: Env): RepoSource {
     },
 
     async commitDiff(repo, sha, path) {
-      const res = await fetch(`https://api.github.com/repos/${repo}/commits/${sha}`, { headers });
+      const res = await callExternal(`https://api.github.com/repos/${repo}/commits/${sha}`, {
+        what: "github commit",
+        headers,
+      });
       if (!res.ok) return null;
       const body = (await res.json()) as { files?: Array<{ filename: string; patch?: string }> };
       return body.files?.find((f) => f.filename === path)?.patch ?? null;
@@ -105,7 +109,7 @@ export function gitlabRepo(env: Env): RepoSource {
       url.searchParams.set("path", path);
       url.searchParams.set("per_page", String(limit));
 
-      const res = await fetch(url, { headers });
+      const res = await callExternal(url, { what: "gitlab", headers });
       if (!res.ok) {
         throw new Error(`gitlab ${res.status}: ${(await res.text()).slice(0, 200)}`);
       }
@@ -122,18 +126,18 @@ export function gitlabRepo(env: Env): RepoSource {
     },
 
     async readSource(repo, path, line, radius) {
-      const res = await fetch(
+      const res = await callExternal(
         `${host}/api/v4/projects/${id(repo)}/repository/files/${encodeURIComponent(path)}/raw?ref=HEAD`,
-        { headers },
+        { what: "gitlab file", headers },
       );
       if (res.status === 404) return null;
       return window(await textOr(res, "gitlab file"), path, line, radius);
     },
 
     async commitDiff(repo, sha, path) {
-      const res = await fetch(
+      const res = await callExternal(
         `${host}/api/v4/projects/${id(repo)}/repository/commits/${sha}/diff`,
-        { headers },
+        { what: "gitlab diff", headers },
       );
       if (!res.ok) return null;
       const diffs = (await res.json()) as Array<{ new_path: string; diff: string }>;
@@ -161,7 +165,7 @@ export function azureDevOpsRepo(env: Env): RepoSource {
       url.searchParams.set("searchCriteria.$top", String(limit));
       url.searchParams.set("api-version", "7.1");
 
-      const res = await fetch(url, { headers });
+      const res = await callExternal(url, { what: "azuredevops", headers });
       if (!res.ok) {
         throw new Error(`azuredevops ${res.status}: ${(await res.text()).slice(0, 200)}`);
       }
@@ -183,7 +187,7 @@ export function azureDevOpsRepo(env: Env): RepoSource {
       url.searchParams.set("api-version", "7.1");
       url.searchParams.set("$format", "text");
 
-      const res = await fetch(url, { headers });
+      const res = await callExternal(url, { what: "azuredevops item", headers });
       if (res.status === 404) return null;
       return window(await textOr(res, "azuredevops item"), path, line, radius);
     },

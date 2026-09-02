@@ -1,4 +1,5 @@
 import type { CursorState, Env, FetchResult, LogEvent, Severity, StackFrame } from "../types";
+import { callExternal, expectOk } from "./http";
 import fixtures from "../../fixtures/incidents.json";
 
 export interface LogSource {
@@ -72,7 +73,8 @@ export function elasticsearchSource(env: Env): LogSource {
       const since = cursor?.position ?? null;
       const range = since ? { range: { "@timestamp": { gt: since } } } : { match_all: {} };
 
-      const res = await fetch(`${base}/logs-*/_search`, {
+      const res = await callExternal(`${base}/logs-*/_search`, {
+        what: "elasticsearch",
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -227,10 +229,10 @@ export function sentrySource(env: Env): LogSource {
   return {
     name: "sentry",
     async fetch(cursor) {
-      const res = await fetch(
-        `${host}/api/0/projects/${org}/${project}/events/?full=true`,
-        { headers: { authorization: `Bearer ${env.SENTRY_TOKEN}`, accept: "application/json" } },
-      );
+      const res = await callExternal(`${host}/api/0/projects/${org}/${project}/events/?full=true`, {
+        what: "sentry",
+        headers: { authorization: `Bearer ${env.SENTRY_TOKEN}`, accept: "application/json" },
+      });
       if (!res.ok) {
         throw new Error(`sentry ${res.status}: ${(await res.text()).slice(0, 300)}`);
       }
@@ -315,7 +317,8 @@ export function datadogSource(env: Env): LogSource {
     name: "datadog",
     async fetch(cursor) {
       const since = cursor?.position ?? null;
-      const res = await fetch(`https://api.${site}/api/v2/logs/events/search`, {
+      const res = await callExternal(`https://api.${site}/api/v2/logs/events/search`, {
+        what: "datadog",
         method: "POST",
         headers: {
           "content-type": "application/json",

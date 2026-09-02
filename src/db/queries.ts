@@ -305,43 +305,31 @@ export interface Metrics {
  * reported alongside the rate rather than hidden inside it.
  */
 export async function metrics(db: D1Database): Promise<Metrics> {
+  /**
+   * One round trip, not five. The previous shape also pulled every brief's
+   * duration into memory to take a median in JS, which grows without bound;
+   * OFFSET COUNT(*)/2 asks SQLite for the single row it needs.
+   */
   const row = await db
     .prepare(
       `SELECT
-         COUNT(*)                                                        AS total,
-         SUM(status = 'posted')                                          AS posted,
-         SUM(status = 'filed')                                           AS filed,
-         SUM(status = 'unmapped')                                        AS unmapped,
-         SUM(resolution = 'cause_confirmed')                             AS causeConfirmed,
-         SUM(resolution = 'cause_wrong')                                 AS causeWrong,
-         SUM(resolution IS NULL AND status != 'unmapped')                AS unresolved,
-         SUM(occurrences)                                                AS occurrences
+         COUNT(*)                                          AS total,
+         SUM(status = 'posted')                            AS posted,
+         SUM(status = 'filed')                             AS filed,
+         SUM(status = 'unmapped')                          AS unmapped,
+         SUM(resolution = 'cause_confirmed')               AS causeConfirmed,
+         SUM(resolution = 'cause_wrong')                   AS causeWrong,
+         SUM(resolution IS NULL AND status != 'unmapped')  AS unresolved,
+         SUM(occurrences)                                  AS occurrences,
+         (SELECT SUM(kind = 'not_helpful')  FROM dispositions)      AS notHelpful,
+         (SELECT SUM(kind = 'cost_me_time') FROM dispositions)      AS harmful,
+         (SELECT COUNT(DISTINCT incident_id) FROM dispositions)     AS dispositioned,
+         (SELECT COALESCE(SUM(spend_usd), 0) FROM briefs)           AS spend,
+         (SELECT duration_ms FROM briefs ORDER BY duration_ms
+           LIMIT 1 OFFSET (SELECT COUNT(*) / 2 FROM briefs))        AS median
        FROM incidents`,
     )
     .first<any>();
-
-  const disp = await db
-    .prepare(
-      `SELECT
-         SUM(kind = 'not_helpful')   AS notHelpful,
-         SUM(kind = 'cost_me_time')  AS harmful
-       FROM dispositions`,
-    )
-    .first<any>();
-
-  const spend = await db
-    .prepare(`SELECT COALESCE(SUM(spend_usd), 0) AS s, COUNT(*) AS n FROM briefs`)
-    .first<{ s: number; n: number }>();
-
-  const durations = await db
-    .prepare(`SELECT duration_ms FROM briefs ORDER BY duration_ms`)
-    .all<{ duration_ms: number }>();
-  const ds = (durations.results ?? []).map((d) => d.duration_ms);
-  const median = ds.length ? ds[Math.floor(ds.length / 2)] : 0;
-
-  const dispositioned = await db
-    .prepare(`SELECT COUNT(DISTINCT incident_id) AS n FROM dispositions`)
-    .first<{ n: number }>();
 
   return {
     total: row?.total ?? 0,
@@ -352,11 +340,11 @@ export async function metrics(db: D1Database): Promise<Metrics> {
     causeWrong: row?.causeWrong ?? 0,
     unresolved: row?.unresolved ?? 0,
     occurrences: row?.occurrences ?? 0,
-    dismissedNotHelpful: disp?.notHelpful ?? 0,
-    dismissedHarmful: disp?.harmful ?? 0,
-    undispositioned: (row?.total ?? 0) - (dispositioned?.n ?? 0),
-    spendUsd: spend?.s ?? 0,
-    medianBriefMs: median,
+    dismissedNotHelpful: row?.notHelpful ?? 0,
+    dismissedHarmful: row?.harmful ?? 0,
+    undispositioned: (row?.total ?? 0) - (row?.dispositioned ?? 0),
+    spendUsd: row?.spend ?? 0,
+    medianBriefMs: row?.median ?? 0,
   };
 }
 

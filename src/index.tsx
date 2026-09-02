@@ -33,10 +33,10 @@ import { verifySlackSignature } from "./slack/verify";
 import { IncidentPage, IncidentsPage, MetricsPage, ServicesPage } from "./ui/pages";
 import { renderPage } from "./ui/shell";
 import { CSS, CSS_HREF, JS, JS_HREF } from "./ui/css";
-import type { Env, Resolution } from "./types";
+import type { Env, Resolution, SettingsRow } from "./types";
 import {
-  actorFor,
   authenticate,
+  type AuthResult,
   checkAdmin,
   checkThrottle,
   claimDeployment,
@@ -50,6 +50,7 @@ import {
 } from "./auth";
 import { createUser, identify, listUsers, setUserDisabled, timingSafeEqual } from "./users";
 import { deleteSecret, listSecrets, MANAGED_SECRETS, putSecret, resolveEnv } from "./secrets";
+import { summarise, verifyAll } from "./providers/verify";
 import { ClaimPage, ErrorPage, SetupPage, SignInPage } from "./ui/setup";
 
 /**
@@ -124,7 +125,65 @@ function deps(env: Env, logSource = "auto"): Deps {
   };
 }
 
-const app = new Hono<{ Bindings: Env }>();
+/**
+ * Request-scoped caches.
+ *
+ * Authentication is consulted by the middleware, again by the page to greet the
+ * user, and again to decide whether the admin controls render — three times a
+ * render, two D1 queries each. Settings and the decrypted credential overlay
+ * were read repeatedly for the same reason. Computing each once per request
+ * took /setup from 20 queries to single figures.
+ *
+ * Deliberately per request, not global: a Worker isolate serves many requests
+ * and caching auth across them would be a serious bug.
+ */
+type Vars = {
+  auth?: AuthResult;
+  settings?: SettingsRow;
+  renv?: Env;
+  deps?: Deps;
+};
+
+const app = new Hono<{ Bindings: Env; Variables: Vars }>();
+
+async function authOf(c: any): Promise<AuthResult> {
+  const cached = c.get("auth");
+  if (cached) return cached;
+  const result = await authenticate(c.env, c.req.raw);
+  c.set("auth", result);
+  return result;
+}
+
+const stateOf = async (c: any) => (await authOf(c)).state;
+
+async function actorOf(c: any): Promise<string> {
+  const { identity } = await authOf(c);
+  return identity ? identity.name : clientId(c.req.raw);
+}
+
+async function settingsOf(c: any): Promise<SettingsRow> {
+  const cached = c.get("settings");
+  if (cached) return cached;
+  const row = await db.getSettings(c.env.DB);
+  c.set("settings", row);
+  return row;
+}
+
+async function envOf(c: any): Promise<Env> {
+  const cached = c.get("renv");
+  if (cached) return cached;
+  const resolved = await resolveEnv(c.env);
+  c.set("renv", resolved);
+  return resolved;
+}
+
+async function depsOf(c: any): Promise<Deps> {
+  const cached = c.get("deps");
+  if (cached) return cached;
+  const built = deps(await envOf(c), (await settingsOf(c)).log_source);
+  c.set("deps", built);
+  return built;
+}
 
 /**
  * The pages render no third-party script and no inline script beyond the theme
@@ -189,7 +248,7 @@ app.notFound((c) => {
  * why deploying without setting it is refused below.
  */
 const admin = async (c: any, next: any) => {
-  const state = await checkAdmin(c.env, c.req.raw);
+  const state = await stateOf(c);
   if (state === "denied") return c.text("unauthorized", 401);
   if (state === "unclaimed") return c.text("deployment not claimed — open /setup", 409);
   return next();
@@ -197,7 +256,7 @@ const admin = async (c: any, next: any) => {
 
 /** Same check, but a browser gets redirected to sign in rather than a 401. */
 const adminPage = async (c: any, next: any) => {
-  const state = await checkAdmin(c.env, c.req.raw);
+  const state = await stateOf(c);
   if (state === "unclaimed") return c.redirect("/setup/claim", 302);
   if (state === "denied") return c.redirect("/setup/signin", 302);
   return next();
@@ -217,20 +276,20 @@ const viewer = async (c: any, next: any) => {
   if (ALWAYS_OPEN.has(path) || path.startsWith("/setup/")) return next();
   if (publicReadEnabled(c.env)) return next();
 
-  const state = await checkAdmin(c.env, c.req.raw);
+  const state = await stateOf(c);
   if (state === "unclaimed") return c.redirect("/setup/claim", 302);
   if (state === "denied") return c.redirect("/setup/signin", 302);
   return next();
 };
 const originOf = (c: any) => new URL(c.req.url).origin;
-const whoIs = async (c: any) => (await authenticate(c.env, c.req.raw)).identity?.name ?? null;
+const whoIs = async (c: any) => (await authOf(c)).identity?.name ?? null;
 
 /* ------------------------------------------------------------------ read */
 
 app.get("/", viewer, async (c) => {
   const [incidents, settings, services] = await Promise.all([
     db.listIncidents(c.env.DB, 200),
-    db.getSettings(c.env.DB),
+    settingsOf(c),
     db.listServices(c.env.DB),
   ]);
   const filters = {
@@ -239,7 +298,7 @@ app.get("/", viewer, async (c) => {
     status: c.req.query("status") || undefined,
     q: c.req.query("q") || undefined,
   };
-  const d = await depsFor(c.env);
+  const d = await depsOf(c);
   const simulated = [
     d.logs.name === "fixture" ? "logs" : null,
     d.diagnoser.name === "simulated" ? "briefs" : null,
@@ -259,7 +318,7 @@ app.get("/", viewer, async (c) => {
         jsHref={JS_HREF}
         who={await whoIs(c)}
         serviceCount={services.length}
-        adminLocked={(await checkAdmin(c.env, c.req.raw)) !== "unclaimed"}
+        adminLocked={(await stateOf(c)) !== "unclaimed"}
       />,
     ),
   );
@@ -268,7 +327,7 @@ app.get("/", viewer, async (c) => {
 app.get("/metrics", viewer, async (c) => {
   const [m, settings, byService] = await Promise.all([
     db.metrics(c.env.DB),
-    db.getSettings(c.env.DB),
+    settingsOf(c),
     db.metricsByService(c.env.DB),
   ]);
   return c.html(renderPage(<MetricsPage m={m} settings={settings} byService={byService} cssHref={CSS_HREF}
@@ -278,7 +337,7 @@ app.get("/metrics", viewer, async (c) => {
 app.get("/services", viewer, async (c) => {
   const [services, settings, byService] = await Promise.all([
     db.listServices(c.env.DB),
-    db.getSettings(c.env.DB),
+    settingsOf(c),
     db.metricsByService(c.env.DB),
   ]);
   return c.html(
@@ -289,7 +348,7 @@ app.get("/services", viewer, async (c) => {
         byService={byService}
         cssHref={CSS_HREF}
         jsHref={JS_HREF}
-        adminLocked={(await checkAdmin(c.env, c.req.raw)) !== "unclaimed"}
+        adminLocked={(await stateOf(c)) !== "unclaimed"}
         who={await whoIs(c)}
       />,
     ),
@@ -305,7 +364,7 @@ app.get("/incident/:id", viewer, async (c) => {
     db.getBrief(c.env.DB, id),
     db.getService(c.env.DB, incident.service),
     db.listEvents(c.env.DB, id),
-    db.getSettings(c.env.DB),
+    settingsOf(c),
     db.getIncidentExtras(c.env.DB, id),
   ]);
 
@@ -344,8 +403,8 @@ app.get("/kumo.css", (c) =>
 );
 
 app.get("/health", async (c) => {
-  const d = await depsFor(c.env);
-  const settings = await db.getSettings(c.env.DB);
+  const d = await depsOf(c);
+  const settings = await settingsOf(c);
   return c.json({
     ok: true,
     killSwitch: Boolean(settings.kill_switch),
@@ -387,8 +446,8 @@ app.post("/incident/:id/resolve", adminPage, async (c) => {
     return c.text("bad resolution", 400);
   }
 
-  await db.setResolution(c.env.DB, id, resolution, await actorFor(c.env, c.req.raw));
-  await db.logEvent(c.env.DB, id, "resolved", resolution, await actorFor(c.env, c.req.raw));
+  await db.setResolution(c.env.DB, id, resolution, await actorOf(c));
+  await db.logEvent(c.env.DB, id, "resolved", resolution, await actorOf(c));
   return c.redirect(`/incident/${id}`, 303);
 });
 
@@ -399,12 +458,12 @@ app.post("/incident/:id/resolve", adminPage, async (c) => {
  */
 app.post("/incident/:id/file", adminPage, async (c) => {
   const id = c.req.param("id");
-  const actor = await actorFor(c.env, c.req.raw);
+  const actor = await actorOf(c);
   const incident = await db.getIncident(c.env.DB, id);
   if (!incident) return c.text("not found", 404);
 
   try {
-    await fileIssue(await depsFor(c.env), incident, actor);
+    await fileIssue(await depsOf(c), incident, actor);
   } catch (error) {
     return c.redirect(`/incident/${id}?error=${encodeURIComponent(String(error).slice(0, 140))}`, 303);
   }
@@ -417,7 +476,7 @@ app.post("/incident/:id/dismiss", adminPage, async (c) => {
   const kind = String(form.kind ?? "");
   if (kind !== "not_helpful" && kind !== "cost_me_time") return c.text("bad kind", 400);
 
-  await dismiss(await depsFor(c.env), id, kind, await actorFor(c.env, c.req.raw));
+  await dismiss(await depsOf(c), id, kind, await actorOf(c));
   return c.redirect(`/incident/${id}`, 303);
 });
 
@@ -450,7 +509,7 @@ app.post("/slack/actions", async (c) => {
  * admin token until someone claims it here.
  */
 app.get("/setup/claim", async (c) => {
-  const state = await checkAdmin(c.env, c.req.raw);
+  const state = await stateOf(c);
   if (state !== "unclaimed") return c.redirect("/setup/signin", 302);
   return c.html(renderPage(<ClaimPage cssHref={CSS_HREF} origin={originOf(c)} />));
 });
@@ -461,7 +520,7 @@ app.post("/setup/claim", async (c) => {
   const result = await claimDeployment(c.env, name);
 
   if ("error" in result) {
-    await db.logEvent(c.env.DB, null, "claim_rejected", result.error, await actorFor(c.env, c.req.raw));
+    await db.logEvent(c.env.DB, null, "claim_rejected", result.error, await actorOf(c));
     return c.redirect("/setup/signin", 303);
   }
 
@@ -478,7 +537,7 @@ app.post("/setup/claim", async (c) => {
 });
 
 app.get("/setup/signin", async (c) => {
-  const state = await checkAdmin(c.env, c.req.raw);
+  const state = await stateOf(c);
   if (state === "ok") return c.redirect("/setup", 302);
   if (state === "unclaimed") return c.redirect("/setup/claim", 302);
   return c.html(
@@ -529,10 +588,10 @@ app.post("/setup/signout", (c) => {
 });
 
 app.get("/setup", adminPage, async (c) => {
-  const d = await depsFor(c.env);
+  const d = await depsOf(c);
   const [services, settings, incidents] = await Promise.all([
     db.listServices(c.env.DB),
-    db.getSettings(c.env.DB),
+    settingsOf(c),
     db.listIncidents(c.env.DB, 1),
   ]);
   const [m, demo, audit, failures, users, auth] = await Promise.all([
@@ -541,7 +600,7 @@ app.get("/setup", adminPage, async (c) => {
     db.auditTrail(c.env.DB, 10),
     db.recentFailures(c.env.DB, 5),
     listUsers(c.env.DB),
-    authenticate(c.env, c.req.raw),
+    authOf(c),
   ]);
   const stored = await listSecrets(c.env);
   const secrets = MANAGED_SECRETS.map((spec) => {
@@ -584,9 +643,9 @@ app.get("/setup", adminPage, async (c) => {
 });
 
 app.post("/setup/demo", adminPage, async (c) => {
-  const actor = await actorFor(c.env, c.req.raw);
+  const actor = await actorOf(c);
   await db.seedDemoServices(c.env.DB);
-  const r = await run(await depsFor(c.env));
+  const r = await run(await depsOf(c));
   await db.logEvent(c.env.DB, null, "demo_loaded", `${r.briefed} briefed`, actor);
   return c.redirect(
     `/setup?ran=${encodeURIComponent(`demo data loaded — ${r.briefed} briefs written`)}`,
@@ -596,14 +655,14 @@ app.post("/setup/demo", adminPage, async (c) => {
 
 app.post("/setup/demo/clear", adminPage, async (c) => {
   await db.clearDemo(c.env.DB);
-  await db.logEvent(c.env.DB, null, "demo_cleared", "", await actorFor(c.env, c.req.raw));
+  await db.logEvent(c.env.DB, null, "demo_cleared", "", await actorOf(c));
   return c.redirect("/setup?ran=demo%20data%20cleared", 303);
 });
 
 app.post("/setup/secrets", adminPage, async (c) => {
   const f = await c.req.parseBody();
   const name = String(f.name ?? "");
-  const actor = await actorFor(c.env, c.req.raw);
+  const actor = await actorOf(c);
   const result = await putSecret(c.env, name, String(f.value ?? ""), actor);
 
   if (result.error) return c.redirect(`/setup?error=${encodeURIComponent(result.error)}`, 303);
@@ -615,7 +674,7 @@ app.post("/setup/secrets", adminPage, async (c) => {
 app.post("/setup/secrets/delete", adminPage, async (c) => {
   const f = await c.req.parseBody();
   const name = String(f.name ?? "");
-  const actor = await actorFor(c.env, c.req.raw);
+  const actor = await actorOf(c);
   await deleteSecret(c.env, name);
   await db.logEvent(c.env.DB, null, "secret_removed", name, actor);
   return c.redirect(`/setup?ran=${encodeURIComponent(`${name} removed`)}`, 303);
@@ -623,7 +682,7 @@ app.post("/setup/secrets/delete", adminPage, async (c) => {
 
 app.post("/setup/users", adminPage, async (c) => {
   const f = await c.req.parseBody();
-  const actor = await actorFor(c.env, c.req.raw);
+  const actor = await actorOf(c);
   const created = await createUser(c.env.DB, String(f.name ?? ""), "admin", actor);
 
   if ("error" in created) return c.redirect(`/setup?error=${encodeURIComponent(created.error)}`, 303);
@@ -636,7 +695,7 @@ app.post("/setup/users", adminPage, async (c) => {
 
 app.post("/setup/users/toggle", adminPage, async (c) => {
   const f = await c.req.parseBody();
-  const actor = await actorFor(c.env, c.req.raw);
+  const actor = await actorOf(c);
   const disable = String(f.disabled ?? "") === "1";
   const result = await setUserDisabled(c.env.DB, String(f.id ?? ""), disable);
 
@@ -658,13 +717,13 @@ app.post("/setup/services", adminPage, async (c) => {
     slack_channel: channel.startsWith("#") ? channel : `#${channel}`,
     team: String(f.team ?? "").trim(),
   });
-  await db.logEvent(c.env.DB, null, "service_registered", name, await actorFor(c.env, c.req.raw));
+  await db.logEvent(c.env.DB, null, "service_registered", name, await actorOf(c));
   return c.redirect(`/setup?added=${encodeURIComponent(name)}`, 303);
 });
 
 app.post("/setup/ingest", adminPage, async (c) => {
-  const r = await run(await depsFor(c.env));
-  await db.logEvent(c.env.DB, null, "manual_ingest", `${r.briefed} briefed`, await actorFor(c.env, c.req.raw));
+  const r = await run(await depsOf(c));
+  await db.logEvent(c.env.DB, null, "manual_ingest", `${r.briefed} briefed`, await actorOf(c));
   const summary = r.halted
     ? `paused — ${r.halted}`
     : `${r.briefed} briefed, ${r.deduped} deduped, ${r.unmapped} unmapped`;
@@ -678,7 +737,7 @@ app.post("/setup/kill", adminPage, async (c) => {
     kill_switch: on,
     kill_switch_reason: on ? "paused from the setup page" : "",
   });
-  await db.logEvent(c.env.DB, null, on ? "paused" : "resumed", "", await actorFor(c.env, c.req.raw));
+  await db.logEvent(c.env.DB, null, on ? "paused" : "resumed", "", await actorOf(c));
   return c.redirect("/setup", 303);
 });
 
@@ -728,7 +787,31 @@ app.post("/ingest", async (c) => {
   return c.json({ ok: true, accepted: items.length });
 });
 
-app.post("/admin/ingest", admin, async (c) => c.json(await run(await depsFor(c.env))));
+/**
+ * Does each credential actually work?
+ *
+ * Without this a wrong key is indistinguishable from an unconfigured one: the
+ * provider falls back to simulated and the deployment goes on looking healthy.
+ * Each check is the provider's own identity call, so the answer is definitive.
+ */
+app.post("/admin/verify", admin, async (c) => {
+  const checks = await verifyAll(await envOf(c));
+  await db.logEvent(c.env.DB, null, "connections_verified", summarise(checks), await actorOf(c));
+  return c.json({ ok: checks.every((x) => x.ok !== false), checks, summary: summarise(checks) });
+});
+
+app.post("/setup/verify", adminPage, async (c) => {
+  const checks = await verifyAll(await envOf(c));
+  const summary = summarise(checks);
+  await db.logEvent(c.env.DB, null, "connections_verified", summary, await actorOf(c));
+  const failed = checks.some((x) => x.ok === false);
+  return c.redirect(
+    `/setup?${failed ? "error" : "ran"}=${encodeURIComponent(summary)}`,
+    303,
+  );
+});
+
+app.post("/admin/ingest", admin, async (c) => c.json(await run(await depsOf(c))));
 
 app.post("/admin/reset", admin, async (c) => {
   await db.reset(c.env.DB);
@@ -759,12 +842,13 @@ app.post("/admin/settings", admin, async (c) => {
     log_source?: string;
   }>();
   await db.updateSettings(c.env.DB, body ?? {});
+  // read through, not from the request cache: this is after a write
   return c.json({ ok: true, settings: await db.getSettings(c.env.DB) });
 });
 
 /* --------------------------------------------------------------- aliases */
 // Kept so local scripts and docs written against /dev/* keep working.
-app.post("/dev/ingest", admin, async (c) => c.json(await run(await depsFor(c.env))));
+app.post("/dev/ingest", admin, async (c) => c.json(await run(await depsOf(c))));
 app.post("/dev/reset", admin, async (c) => {
   await db.reset(c.env.DB);
   return c.json({ ok: true });
