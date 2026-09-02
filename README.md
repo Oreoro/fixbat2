@@ -142,6 +142,8 @@ than failing quietly.
 |---|---|---|
 | `ADMIN_TOKEN` | deployment must be claimed in the browser (one-click path) | explicit secret for CI; skips the claim step |
 | `ANTHROPIC_API_KEY` | canned briefs keyed to sample errors | real briefs from Claude |
+| `ANTHROPIC_MODEL` / `_EFFORT` | `claude-opus-5` at high effort | a cheaper model or shallower thinking |
+| `OPENAI_BASE_URL` + `_API_KEY` + `_MODEL` | — | any OpenAI-compatible endpoint writes the briefs |
 | `SLACK_BOT_TOKEN` | briefs stored, not posted | briefs posted to each service's channel |
 | `SLACK_SIGNING_SECRET` | buttons return 503 | buttons work |
 | `GITHUB_TOKEN` | plausible fake commit history | real commits, real issues |
@@ -285,6 +287,32 @@ does not grow without bound. `INGEST_TOKEN` is deliberately **not** the admin
 token: it is distributed to every application that reports errors, so it must
 not also grant administration. Events are buffered and drained on the next run,
 so nothing at the edge calls the model or costs money.
+
+### Who writes the brief
+
+The model is the **one optional part of this product**. Fingerprinting, dedupe,
+the frame, blame, source reading, delivery and the metrics are all
+deterministic — `simulatedDiagnoser` runs the whole pipeline end to end with no
+model at all. What a model adds is the hypothesis: the suspected cause, the
+first checks, and with source reading, why a commit is implicated.
+
+Three choices, in precedence order:
+
+| Configure | You get |
+|---|---|
+| `ANTHROPIC_API_KEY` | Claude. `ANTHROPIC_MODEL` picks the model (`claude-opus-5` default, `claude-sonnet-5` ~2.5× cheaper, `claude-haiku-4-5` ~5×) and `ANTHROPIC_EFFORT` the thinking depth |
+| `OPENAI_BASE_URL` + `_API_KEY` + `_MODEL` | Any OpenAI-compatible endpoint — GLM, DeepSeek, Together, OpenRouter, or a self-hosted vLLM for source code that must not leave your network |
+| neither | Canned briefs. Everything else still works |
+
+All three share one rubric, one schema, one evidence packet and one parser, so
+the only variable is the model. The filter that drops commits a model cited but
+was never given applies whoever answers — that matters more with a cheaper
+model, not less.
+
+**Is the model worth it?** The product measures that itself. `cause_confirmed`
+/ `cause_wrong` on resolved incidents is the precision metric; run a hundred
+briefs and read the rate. At roughly $0.05–0.07 per brief on Opus 5, the
+default cap of 50/day is about $75–105 a month.
 
 ### Reading the actual code
 
@@ -446,7 +474,7 @@ npm run dev      # in one shell
 npm test         # in another
 ```
 
-285 checks over ten suites, all against a real server — no mocks.
+297 checks over eleven suites, all against a real server.
 
 `test/audit.py` walks the whole product from an empty deployment — claim, demo,
 triage, dedupe, Slack, resolution, guardrails, security headers, audit trail.

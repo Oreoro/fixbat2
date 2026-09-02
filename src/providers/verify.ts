@@ -106,6 +106,26 @@ export async function verifyAll(env: Env): Promise<Check[]> {
 
   checks.push(
     probe(
+      "briefs",
+      "OpenAI-compatible",
+      Boolean(env.OPENAI_BASE_URL && env.OPENAI_API_KEY),
+      () =>
+        // /models is the one endpoint essentially every OpenAI-compatible
+        // server implements, and it costs nothing.
+        callExternal(`${(env.OPENAI_BASE_URL ?? "").replace(/\/+$/, "")}/models`, {
+          what: "openai-compatible",
+          headers: { authorization: `Bearer ${env.OPENAI_API_KEY ?? ""}` },
+        }),
+      async (res) => {
+        const body = await json(res);
+        const count = Array.isArray(body?.data) ? body.data.length : 0;
+        return count ? `${count} model(s) available` : "endpoint reachable";
+      },
+    ),
+  );
+
+  checks.push(
+    probe(
       "slack",
       "Slack",
       Boolean(env.SLACK_BOT_TOKEN),

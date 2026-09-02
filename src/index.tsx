@@ -9,7 +9,8 @@ import {
   sentrySource,
   type LogSource,
 } from "./providers/logs";
-import { anthropicDiagnoser, simulatedDiagnoser } from "./providers/model";
+import { anthropicDiagnoser, simulatedDiagnoser, type Diagnoser } from "./providers/model";
+import { openAICompatibleDiagnoser } from "./providers/openai";
 import {
   azureDevOpsRepo,
   githubRepo,
@@ -90,6 +91,21 @@ function chooseLogSource(env: Env, choice: string): LogSource {
 }
 
 /**
+ * Who writes the brief.
+ *
+ * Anthropic first when configured — it is the default this product is tuned
+ * for. An OpenAI-compatible endpoint covers everything else, including a
+ * self-hosted model for clients whose source code must not leave their
+ * network. With neither, briefs are canned and the rest of the pipeline is
+ * unaffected: the model is the one part of this product that is optional.
+ */
+function chooseDiagnoser(env: Env): Diagnoser {
+  if (env.ANTHROPIC_API_KEY) return anthropicDiagnoser(env);
+  if (env.OPENAI_BASE_URL && env.OPENAI_API_KEY) return openAICompatibleDiagnoser(env);
+  return simulatedDiagnoser();
+}
+
+/**
  * The code host. Only one can be live at a time, because a service's `repo`
  * column is a single identifier and means something different to each.
  */
@@ -120,7 +136,7 @@ function deps(env: Env, logSource = "auto"): Deps {
     logs: chooseLogSource(env, logSource),
     repo: chooseRepo(env),
     tickets: chooseTickets(env),
-    diagnoser: env.ANTHROPIC_API_KEY ? anthropicDiagnoser(env) : simulatedDiagnoser(),
+    diagnoser: chooseDiagnoser(env),
     slack: slackClient(env),
   };
 }

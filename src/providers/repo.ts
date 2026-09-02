@@ -26,9 +26,16 @@ export interface RepoSource {
   fileUrl(repo: string, path: string, line: number | null): string;
 }
 
-/** Map a runtime path like /app/src/checkout/pricing.ts to a repo-relative one. */
+/**
+ * Map a runtime path like /app/src/checkout/pricing.ts to a repo-relative one.
+ * Also handles the bare `app/...` form, which is what models tend to emit when
+ * they echo a frame back without the leading slash.
+ */
 export function toRepoPath(runtimePath: string): string {
-  return runtimePath.replace(/^.*?\/app\//, "").replace(/^\/+/, "");
+  return runtimePath
+    .replace(/^.*?\/app\//, "")
+    .replace(/^app\//, "")
+    .replace(/^\/+/, "");
 }
 
 /** Trim a fetched file to a window around `line`, 1-based and clamped. */

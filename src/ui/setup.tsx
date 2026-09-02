@@ -124,6 +124,7 @@ const GROUP_ORDER = new Map(CREDENTIAL_GROUPS.map((g, i) => [g.key, i]));
 const PROVIDER_ORDER = new Map(
   [
     "Anthropic",
+    "OpenAI-compatible",
     "Sentry",
     "Datadog",
     "Elasticsearch",

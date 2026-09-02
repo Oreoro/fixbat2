@@ -14,7 +14,7 @@
     "build": "npm run css && npm run js",
     "db:reset:local": "rm -rf .wrangler/state/v3/d1 && npm run db:local",
     "setup": "bash scripts/setup.sh",
-    "test": "python3 test/audit.py && python3 test/users.py && python3 test/secrets.py && python3 test/onboarding.py && python3 test/trace.py && python3 test/pipeline.py && python3 test/languages.py && python3 test/providers.py && python3 test/api.py && python3 test/slack.py"
+    "test": "python3 test/audit.py && python3 test/users.py && python3 test/secrets.py && python3 test/onboarding.py && python3 test/trace.py && python3 test/pipeline.py && python3 test/languages.py && python3 test/providers.py && python3 test/api.py && python3 test/slack.py && python3 test/diagnosers.py"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.72.0",

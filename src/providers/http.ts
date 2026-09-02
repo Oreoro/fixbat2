@@ -8,8 +8,20 @@
  * be retried from the same cursor for ever.
  */
 
-/** Long enough for a slow API, short enough that a run cannot be held hostage. */
+/**
+ * Long enough for a slow API, short enough that a run cannot be held hostage.
+ * This suits metadata calls — GitHub, Slack, Jira — which answer in under a
+ * second when healthy.
+ */
 export const EXTERNAL_TIMEOUT_MS = 10_000;
+
+/**
+ * Inference is a different class of call and needs its own deadline. A real
+ * glm-5.3-flash request carrying source and diffs took well over ten seconds
+ * and was killed mid-flight, so the incident got no brief at all — the guard
+ * meant to protect a run was ending it.
+ */
+export const MODEL_TIMEOUT_MS = 60_000;
 
 const MAX_ATTEMPTS = 3;
 const BASE_BACKOFF_MS = 250;
@@ -41,23 +53,25 @@ export interface CallOptions extends RequestInit {
   what: string;
   /** Retries are for reads; a POST that may have succeeded is not retried. */
   retry?: boolean;
+  /** Defaults to EXTERNAL_TIMEOUT_MS. Inference should pass MODEL_TIMEOUT_MS. */
+  timeoutMs?: number;
 }
 
 export async function callExternal(url: string | URL, options: CallOptions): Promise<Response> {
-  const { what, retry = true, ...init } = options;
+  const { what, retry = true, timeoutMs = EXTERNAL_TIMEOUT_MS, ...init } = options;
   const attempts = retry ? MAX_ATTEMPTS : 1;
   let lastStatus = 0;
 
   for (let attempt = 1; attempt <= attempts; attempt++) {
     let res: Response;
     try {
-      res = await fetch(url, { ...init, signal: AbortSignal.timeout(EXTERNAL_TIMEOUT_MS) });
+      res = await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
     } catch (error) {
       const timedOut = (error as Error)?.name === "TimeoutError";
       if (attempt === attempts) {
         throw new Error(
           timedOut
-            ? `${what} did not respond within ${EXTERNAL_TIMEOUT_MS / 1000}s`
+            ? `${what} did not respond within ${timeoutMs / 1000}s`
             : `${what} unreachable: ${String(error).slice(0, 160)}`,
         );
       }

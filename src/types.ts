@@ -6,6 +6,22 @@ export interface Env {
   /** Set to "true" to make incident data readable without signing in. */
   PUBLIC_READ?: string;
   ANTHROPIC_API_KEY?: string;
+  /** Defaults to claude-opus-5. Pricing and thinking support follow the id. */
+  ANTHROPIC_MODEL?: string;
+  /** low | medium | high | xhigh | max. Defaults to high. */
+  ANTHROPIC_EFFORT?: string;
+
+  /**
+   * Any endpoint speaking the OpenAI chat-completions shape — GLM, DeepSeek,
+   * Together, OpenRouter, a self-hosted vLLM. Include the version path, e.g.
+   * https://open.bigmodel.cn/api/paas/v4
+   */
+  OPENAI_BASE_URL?: string;
+  OPENAI_API_KEY?: string;
+  OPENAI_MODEL?: string;
+  /** Per million tokens. Without both, spend is reported as zero, not guessed. */
+  OPENAI_PRICE_IN?: string;
+  OPENAI_PRICE_OUT?: string;
   SLACK_BOT_TOKEN?: string;
   SLACK_SIGNING_SECRET?: string;
   GITHUB_TOKEN?: string;
@@ -128,7 +144,8 @@ export interface Brief {
 
 export interface DiagnosisResult {
   brief: Brief;
-  source: "simulated" | "anthropic";
+  /** Which diagnoser wrote it: "simulated", "anthropic", "openai-compatible". */
+  source: string;
   model: string;
   spendUsd: number;
   durationMs: number;
