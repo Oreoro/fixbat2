@@ -122,7 +122,22 @@ chk("...and the Where link is no longer github.com", "https://github.com/" in wh
 req("/setup/secrets/delete","POST",form={"name":"GITLAB_TOKEN"})
 
 
-print("\n5. A FILED ISSUE NAMES THE TRACKER THAT HAS IT")
+print("\n5. A CHANNEL CAN BE A NAME OR AN ID")
+# Slack accepts #name or a raw id, and an id is the only way to reach a private
+# channel or a DM. Prefixing everything with # made those unreachable.
+req("/setup/services","POST",form={"name":"by-name","repo":"a/b",
+                                   "slack_channel":"eng-alerts","team":"E"})
+req("/setup/services","POST",form={"name":"by-id","repo":"a/b",
+                                   "slack_channel":"D0BU7EV6B3P","team":"E"})
+req("/setup/services","POST",form={"name":"already-hashed","repo":"a/b",
+                                   "slack_channel":"#ops","team":"E"})
+got = {r["name"]: r["slack_channel"] for r in d1("SELECT name, slack_channel FROM services")}
+chk("a bare name gains its #", got.get("by-name"), "#eng-alerts")
+chk("a channel id is left alone", got.get("by-id"), "D0BU7EV6B3P")
+chk("an existing # is not doubled", got.get("already-hashed"), "#ops")
+
+
+print("\n6. A FILED ISSUE NAMES THE TRACKER THAT HAS IT")
 d1(f"""INSERT INTO tickets (id,incident_id,provider,external_id,url,created_by,created_at)
        VALUES ('t-slack','{traced}','jira','OPS-42','https://acme.atlassian.net/browse/OPS-42','t',datetime('now'))""")
 filed = flat(blocks(traced))

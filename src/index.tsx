@@ -31,6 +31,7 @@ import { dismiss, fileIssue, handleInteraction } from "./slack/actions";
 import { renderBrief } from "./slack/blocks";
 import { slackClient } from "./slack/client";
 import { verifySlackSignature } from "./slack/verify";
+import { handleCommand, handleViewSubmission, parseCommand } from "./slack/commands";
 import { IncidentPage, IncidentsPage, MetricsPage, ServicesPage } from "./ui/pages";
 import { renderPage } from "./ui/shell";
 import { CSS, CSS_HREF, JS, JS_HREF } from "./ui/css";
@@ -285,7 +286,14 @@ const isHttps = (c: any) => new URL(c.req.url).protocol === "https:";
  * private unless the operator opts in. Sign-in, claim, health and static assets
  * stay open, and Slack authenticates by signature rather than session.
  */
-const ALWAYS_OPEN = new Set(["/health", "/kumo.css", "/client.js", "/slack/actions", "/ingest"]);
+const ALWAYS_OPEN = new Set([
+  "/health",
+  "/kumo.css",
+  "/client.js",
+  "/slack/actions",
+  "/slack/commands",
+  "/ingest",
+]);
 
 const viewer = async (c: any, next: any) => {
   const path = new URL(c.req.url).pathname;
@@ -533,14 +541,55 @@ app.post("/slack/actions", async (c) => {
   const encoded = new URLSearchParams(raw).get("payload");
   if (!encoded) return c.text("no payload", 400);
   const payload = JSON.parse(encoded);
+  const settings = await db.getSettings(c.env.DB);
+  const d = deps(env, settings.log_source);
+
+  // A modal expects its answer synchronously — Slack closes it on an empty 200
+  // and shows field errors otherwise — so this one cannot be deferred.
+  if (payload.type === "view_submission") {
+    return c.json(await handleViewSubmission(d, payload));
+  }
 
   // Slack needs an answer within three seconds; the work continues after.
   c.executionCtx.waitUntil(
-    handleInteraction(deps(env), payload).catch((error) => {
+    handleInteraction(d, payload).catch((error) => {
       console.error("interaction failed", error);
     }),
   );
   return c.body(null, 200);
+});
+
+/**
+ * Slash commands — configuring FixBat from where its output is read.
+ *
+ * Slack allows three seconds, so anything slower acknowledges immediately and
+ * finishes against the command's response_url.
+ */
+app.post("/slack/commands", async (c) => {
+  const raw = await c.req.text();
+  const env = await resolveEnv(c.env);
+
+  if (!env.SLACK_SIGNING_SECRET) return c.text("slack not configured", 503);
+  if (!(await verifySlackSignature(env.SLACK_SIGNING_SECRET, c.req.raw.headers, raw))) {
+    return c.text("bad signature", 401);
+  }
+
+  const settings = await db.getSettings(c.env.DB);
+  const request = parseCommand(new URLSearchParams(raw));
+
+  try {
+    return c.json(
+      await handleCommand(deps(env, settings.log_source), request, (p) =>
+        c.executionCtx.waitUntil(p),
+      ),
+    );
+  } catch (error) {
+    console.error("slash command failed", error);
+    return c.json({
+      response_type: "ephemeral",
+      text: `That failed: ${String(error).slice(0, 200)}`,
+    });
+  }
 });
 
 /* ----------------------------------------------------------------- setup */
@@ -767,7 +816,14 @@ app.post("/setup/services", adminPage, async (c) => {
   await db.upsertService(c.env.DB, {
     name,
     repo,
-    slack_channel: channel.startsWith("#") ? channel : `#${channel}`,
+    // Slack accepts either a #name or a raw id, and ids are the only way to
+    // reach a private channel or a DM. Prefixing everything with # made those
+    // unreachable, so only name it when it is a name.
+    slack_channel: /^[CDG][A-Z0-9]{6,}$/.test(channel)
+      ? channel
+      : channel.startsWith("#")
+        ? channel
+        : `#${channel}`,
     team: String(f.team ?? "").trim(),
   });
   await db.logEvent(c.env.DB, null, "service_registered", name, await actorOf(c));

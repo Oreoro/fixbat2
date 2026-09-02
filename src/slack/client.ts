@@ -14,6 +14,12 @@ export interface SlackClient {
   readonly live: boolean;
   post(channel: string, text: string, blocks: any[]): Promise<PostResult>;
   update(channel: string, ts: string, text: string, blocks: any[]): Promise<void>;
+  /** True when the Slack user administers the workspace. Authorises config. */
+  isWorkspaceAdmin(userId: string): Promise<boolean>;
+  /** Opens a modal. `trigger_id` expires in about three seconds. */
+  openView(triggerId: string, view: unknown): Promise<void>;
+  /** Replies to a slash command after the initial 3s acknowledgement. */
+  respond(responseUrl: string, body: unknown): Promise<void>;
 }
 
 export function slackClient(env: Env): SlackClient {
@@ -24,10 +30,16 @@ export function slackClient(env: Env): SlackClient {
         return { channel, ts: `sim-${Date.now()}.${Math.floor(Math.random() * 1e6)}` };
       },
       async update() {},
+      // Nobody administers a workspace that is not connected.
+      async isWorkspaceAdmin() {
+        return false;
+      },
+      async openView() {},
+      async respond() {},
     };
   }
 
-  const call = async (method: string, body: unknown) => {
+  const call = async (method: string, body: unknown): Promise<any> => {
     // Posting is not idempotent either — a retry after a message that landed
     // would post it twice. The timeout is the point here.
     const res = await callExternal(`https://slack.com/api/${method}`, {
@@ -53,6 +65,37 @@ export function slackClient(env: Env): SlackClient {
     },
     async update(channel, ts, text, blocks) {
       await call("chat.update", { channel, ts, text, blocks });
+    },
+
+    /**
+     * Configuration is restricted to people who administer the workspace.
+     * Slack is the authority here, so this asks it rather than keeping a
+     * parallel list that would drift.
+     */
+    async isWorkspaceAdmin(userId) {
+      try {
+        const json = await call("users.info", { user: userId });
+        const u = json.user ?? {};
+        return Boolean(u.is_admin || u.is_owner || u.is_primary_owner);
+      } catch {
+        // A missing users:read scope must fail closed, never open.
+        return false;
+      }
+    },
+
+    async openView(triggerId, view) {
+      await call("views.open", { trigger_id: triggerId, view });
+    },
+
+    async respond(responseUrl, body) {
+      // response_url is pre-authorised; sending the bot token would be wrong.
+      await callExternal(responseUrl, {
+        what: "slack response_url",
+        retry: false,
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
     },
   };
 }
