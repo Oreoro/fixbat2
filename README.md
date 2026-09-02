@@ -94,6 +94,42 @@ first run against the empty volume comes up with a working schema rather than
 
 ---
 
+## Running it from Slack
+
+Slack is where the output is read, so it is also where it can be configured.
+`/fixbat` covers status, the service registry, the log source, the spend cap,
+pause and resume, running the pipeline, verifying every connection, and setting
+a credential through a modal.
+
+```
+/fixbat status                                       open to everyone
+/fixbat services
+/fixbat watch <service> <owner/repo> <#channel|id> [team]
+/fixbat unwatch <service>
+/fixbat source auto|sentry|datadog|elasticsearch|http|fixture
+/fixbat connect                                      modal
+/fixbat verify
+/fixbat limit <n>
+/fixbat pause [reason]   /   /fixbat resume
+/fixbat run
+```
+
+Anything that changes what the product does or spends is restricted to people
+who administer the Slack workspace. That is asked of Slack per command rather
+than kept as a second list that would drift, so revoking someone's admin rights
+takes effect immediately. A missing `users:read` scope fails closed. Changes
+made this way are audited as `slack:<username>`, so the trail distinguishes
+them from the browser.
+
+Setting a credential through the modal means its value passes through Slack on
+the way here. A Worker secret set with `wrangler secret put` remains stronger
+and still overrides anything stored this way.
+
+**Scopes:** `chat:write`, `chat:write.public`, `commands`, `users:read`.
+Interactivity and the slash command both point at this deployment.
+
+---
+
 ## Checking your credentials
 
 A wrong key looks exactly like an unconfigured one: the provider falls back to
@@ -474,7 +510,7 @@ npm run dev      # in one shell
 npm test         # in another
 ```
 
-297 checks over eleven suites, all against a real server.
+333 checks over twelve suites, all against a real server.
 
 `test/audit.py` walks the whole product from an empty deployment — claim, demo,
 triage, dedupe, Slack, resolution, guardrails, security headers, audit trail.
@@ -495,6 +531,8 @@ took the first readable line would fail all seven.
 issue tracker is chosen independently of the code host.
 `test/api.py` is the API contract: every route, the credentials it demands, the
 codes it returns and how it answers something malformed.
+`test/commands.py` covers the Slack command surface — that an unsigned request
+is refused and that the admin gate fails closed.
 `test/slack.py` asserts against the blocks Slack actually receives — the link
 back to the incident, the trace id, and that file and ticket links follow the
 client's own host rather than assuming GitHub.

@@ -42,6 +42,22 @@ export function parseCommand(body: URLSearchParams): CommandRequest {
 /** Only the person who typed it sees an ephemeral reply. */
 const ephemeral = (text: string) => ({ response_type: "ephemeral", text });
 
+/** Every verb the command surface answers to. */
+const KNOWN = new Set([
+  "status",
+  "services",
+  "watch",
+  "unwatch",
+  "source",
+  "connect",
+  "verify",
+  "limit",
+  "pause",
+  "resume",
+  "run",
+  "help",
+]);
+
 const HELP = [
   "*FixBat*",
   "`/fixbat status` — what is connected, and today's volume and spend",
@@ -69,6 +85,14 @@ export async function handleCommand(
   // Read-only and harmless inside a workspace, and the refusal below promises
   // it is open — so it must actually be open.
   if (verb === "status") return ephemeral(await status(deps));
+
+  /**
+   * A typo is answered before the privilege check. The help text is already
+   * public, so naming an unrecognised verb leaks nothing — whereas telling
+   * someone they lack permission for a command that does not exist sends them
+   * looking for an admin they do not need.
+   */
+  if (!KNOWN.has(verb)) return ephemeral(`Unknown command \`${verb}\`.\n\n${HELP}`);
 
   /**
    * Everything below changes what the product does or spends, so it is gated.
@@ -117,7 +141,9 @@ export async function handleCommand(
       return ephemeral("Running the pipeline…");
 
     default:
-      return ephemeral(`Unknown command \`${verb}\`.\n\n${HELP}`);
+      // Unreachable: KNOWN is checked above. Kept so adding a verb to KNOWN
+      // without a case here fails loudly rather than silently doing nothing.
+      return ephemeral(`\`${verb}\` is not wired up yet.`);
   }
 }
 

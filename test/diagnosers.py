@@ -22,6 +22,27 @@ def _dbname():
 
 DB=_dbname(); B=os.environ.get("FIXBAT_URL","http://localhost:8787")
 MOCK=os.environ.get("MOCK_AI_URL","http://127.0.0.1:8899/v1")
+
+def _start_mock():
+    """Start the bundled stand-in provider if it is not already listening.
+
+    It used to be expected to be running already, which meant this suite
+    silently depended on a file outside the repo.
+    """
+    import socket, subprocess, time
+    def up():
+        with socket.socket() as sock:
+            sock.settimeout(0.3)
+            return sock.connect_ex(("127.0.0.1", 8899)) == 0
+    if up(): return None
+    proc = subprocess.Popen(["python3", os.path.join(os.path.dirname(os.path.abspath(__file__)), "mockai.py")],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for _ in range(50):
+        if up(): return proc
+        time.sleep(0.1)
+    raise SystemExit("could not start test/mockai.py on port 8899")
+
+_MOCK_PROC = _start_mock()
 ok=fail=0; JAR={}
 
 def chk(name, got, want):
