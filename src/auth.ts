@@ -137,12 +137,6 @@ export async function checkAdmin(env: Env, req: Request): Promise<AdminCheck> {
   return (await authenticate(env, req)).state;
 }
 
-/** The name to attribute an action to, falling back to the caller's address. */
-export async function actorFor(env: Env, req: Request): Promise<string> {
-  const { identity } = await authenticate(env, req);
-  return identity ? identity.name : clientId(req);
-}
-
 /**
  * Incident briefs carry production stack traces, internal file paths and repo
  * names, so the app is private by default. PUBLIC_READ=true opts a deployment

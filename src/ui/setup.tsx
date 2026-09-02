@@ -14,6 +14,8 @@ export interface SecretRow {
   label: string;
   help: string;
   unlocks: string;
+  /** Which service this credential belongs to, e.g. "Sentry". */
+  provider: string;
   fromEnv: boolean;
   hint: string | null;
   updatedBy: string | null;
@@ -114,6 +116,27 @@ const CREDENTIAL_GROUPS: Array<{ key: string; title: string; blurb: string }> = 
 
 const GROUP_ORDER = new Map(CREDENTIAL_GROUPS.map((g, i) => [g.key, i]));
 
+/**
+ * Listed in the order the code would actually choose them, not alphabetically.
+ * A client reasonably reads the first as the preferred one, and that should be
+ * true — this mirrors chooseLogSource, chooseRepo and chooseTickets.
+ */
+const PROVIDER_ORDER = new Map(
+  [
+    "Anthropic",
+    "Sentry",
+    "Datadog",
+    "Elasticsearch",
+    "Pushed events",
+    "GitHub",
+    "GitLab",
+    "Azure DevOps",
+    "Jira",
+    "Linear",
+    "Slack",
+  ].map((name, i) => [name, i]),
+);
+
 export function SetupPage({
   cssHref,
   jsHref,
@@ -150,8 +173,12 @@ export function SetupPage({
   error?: string;
 }) {
   const simulated = Object.entries(providers).filter(([, v]) => v === "simulated" || v === "fixture");
+  // Group first, then keep each provider's fields adjacent. Ten log-source
+  // fields in one run is unreadable when a client only needs one provider's.
   const orderedSecrets = [...secrets].sort(
-    (a, b) => (GROUP_ORDER.get(a.unlocks) ?? 99) - (GROUP_ORDER.get(b.unlocks) ?? 99),
+    (a, b) =>
+      (GROUP_ORDER.get(a.unlocks) ?? 99) - (GROUP_ORDER.get(b.unlocks) ?? 99) ||
+      (PROVIDER_ORDER.get(a.provider) ?? 99) - (PROVIDER_ORDER.get(b.provider) ?? 99),
   );
   const done = {
     services: services.length > 0,
@@ -332,7 +359,9 @@ export function SetupPage({
 
           <div className="flex flex-col gap-4">
             {orderedSecrets.map((s, i) => {
-              const startsGroup = i === 0 || orderedSecrets[i - 1].unlocks !== s.unlocks;
+              const previous = i > 0 ? orderedSecrets[i - 1] : null;
+              const startsGroup = !previous || previous.unlocks !== s.unlocks;
+              const startsProvider = startsGroup || previous!.provider !== s.provider;
               const group = CREDENTIAL_GROUPS.find((g) => g.key === s.unlocks);
               return (
               <div
@@ -345,6 +374,13 @@ export function SetupPage({
                     <div className="mt-0.5">
                       <Text variant="secondary" size="xs">{group.blurb}</Text>
                     </div>
+                  </div>
+                ) : null}
+                {startsProvider ? (
+                  <div className={startsGroup ? "mb-2" : "mt-4 mb-2"}>
+                    <Text variant="secondary" size="xs">
+                      <strong>{s.provider}</strong>
+                    </Text>
                   </div>
                 ) : null}
                 <div className="mb-1 flex flex-wrap items-center gap-2">

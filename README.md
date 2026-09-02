@@ -236,10 +236,19 @@ Set `PUBLIC_READ=true` to opt a deployment into anonymous read access.
 | `POST /admin/reset` | bearer | Clear all incident data |
 | `POST /admin/services` | bearer | Add or update a service |
 | `POST /admin/settings` | bearer | Kill switch, daily limit, trace links, log source |
+| `POST /incident/:id/file` | session | File the brief as a ticket |
+| `POST /incident/:id/dismiss` | session | Record that a brief was not useful |
+| `GET /setup/signin` | — | Sign-in form |
+| `POST /setup/signout` | — | Clear the session cookie |
+| `POST /dev/ingest`, `/dev/reset` | bearer | Aliases kept so older scripts keep working |
 | `POST /admin/verify` | bearer | Check every configured credential actually works |
 | `POST /ingest` | ingest token | Push errors FixBat cannot reach |
 
 ¹ Open to anonymous readers when `PUBLIC_READ=true`.
+
+The remaining `/setup/*` endpoints — claim, demo, services, users, secrets,
+kill, ingest, verify — are form actions for the browser pages above rather than
+an API to script against. `/admin/*` is the scriptable surface.
 
 ---
 

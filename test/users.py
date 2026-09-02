@@ -22,7 +22,13 @@ def chk(n,g,w):
 def d1(sql):
     o=subprocess.run(["npx","wrangler","d1","execute",DB,"--local","--json","--command",sql],
                      capture_output=True,text=True,cwd=ROOT)
-    return json.loads(o.stdout)[0]["results"]
+    # wrangler sometimes prints a banner (an update notice, say) before the
+    # JSON, so parse from the first bracket rather than the first byte.
+    raw = o.stdout
+    i = raw.find("[")
+    if i < 0:
+        raise SystemExit(f"d1 returned no JSON for: {sql}\n{o.stdout}\n{o.stderr}")
+    return json.loads(raw[i:])[0]["results"]
 class NR(urllib.request.HTTPRedirectHandler):
     def redirect_request(self,*a,**k): return None
 def req(path,method="GET",form=None,token=None,jar=None,follow=False):
