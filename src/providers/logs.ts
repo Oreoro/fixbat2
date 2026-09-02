@@ -65,6 +65,71 @@ export function fixtureSource(): LogSource {
 }
 
 /** Live Elasticsearch. The swap is one line in index.ts. */
+/**
+ * One Elasticsearch document, in either shape, as an event this product
+ * understands.
+ *
+ * Fields can arrive flattened ("service.name") or nested ({service:{name}})
+ * depending on the mapping, and OTLP-native documents nest resource attributes
+ * again under `resource.attributes`. Rather than guess which, read every place
+ * a value is known to live and take the first that is there.
+ */
+function mapDocument(id: string, s: any): LogEvent {
+  const pick = (...paths: string[]): any => {
+    for (const path of paths) {
+      // Flattened key first — a document may literally contain "a.b" as a key.
+      if (s?.[path] !== undefined && s[path] !== null && s[path] !== "") return s[path];
+      const nested = path.split(".").reduce((acc: any, part) => acc?.[part], s);
+      if (nested !== undefined && nested !== null && nested !== "") return nested;
+    }
+    return undefined;
+  };
+
+  const level = String(pick("log.level", "severity_text") ?? "").toLowerCase();
+  const severityNumber = Number(pick("severity_number"));
+  // OpenTelemetry: 21-24 is FATAL. ECS spells it out.
+  const fatal = level === "fatal" || level === "critical" || severityNumber >= 21;
+
+  const stack = pick(
+    "error.stack_trace",
+    "attributes.exception.stacktrace",
+    "exception.stacktrace",
+  );
+
+  return {
+    id,
+    service:
+      pick(
+        "service.name",
+        "resource.attributes.service.name",
+        "attributes.service.name",
+      ) ?? "unknown",
+    environment:
+      pick(
+        "service.environment",
+        "resource.attributes.deployment.environment",
+        "resource.attributes.deployment.environment.name",
+      ) ?? "production",
+    severity: (fatal ? "critical" : "high") as Severity,
+    occurredAt: pick("@timestamp") ?? new Date().toISOString(),
+    version: pick("service.version", "resource.attributes.service.version") ?? "",
+    exceptionType:
+      pick("error.type", "attributes.exception.type", "exception.type") ?? "Error",
+    message:
+      pick(
+        "error.message",
+        "attributes.exception.message",
+        "exception.message",
+        // OTLP log records put the human-readable line in the body.
+        "body.text",
+        "message",
+      ) ?? "",
+    stackTrace: typeof stack === "string" ? stack : "",
+    traceId:
+      pick("trace.id", "trace_id", "transaction.id") ?? null,
+  };
+}
+
 export function elasticsearchSource(env: Env): LogSource {
   const base = env.ELASTICSEARCH_URL!.replace(/\/+$/, "");
   return {
@@ -83,9 +148,39 @@ export function elasticsearchSource(env: Env): LogSource {
         body: JSON.stringify({
           size: 50,
           sort: [{ "@timestamp": "asc" }],
-          query: { bool: { filter: [{ terms: { "log.level": ["error", "fatal"] } }, range] } },
+          /**
+           * Two document shapes live in `logs-*`, and a client can have both.
+           *
+           * ECS, written by Beats, Elastic Agent and the Elasticsearch
+           * exporter: `log.level`, `error.type`, `error.stack_trace`.
+           *
+           * OTLP-native, written when data arrives at Elastic's OTLP endpoint
+           * — which is how the OpenTelemetry demo ships, and increasingly how
+           * everyone does: `severity_text`, and the exception recorded under
+           * OpenTelemetry's semantic conventions rather than ECS names.
+           *
+           * Matching only ECS finds nothing in an OTel-native deployment, and
+           * finds it silently: an empty result is indistinguishable from a
+           * quiet hour.
+           */
+          query: {
+            bool: {
+              filter: [range],
+              minimum_should_match: 1,
+              should: [
+                { terms: { "log.level": ["error", "fatal"] } },
+                { terms: { severity_text: ["ERROR", "FATAL", "error", "fatal"] } },
+                // severity_number: ERROR is 17-20, FATAL 21-24.
+                { range: { severity_number: { gte: 17 } } },
+                // An exception was recorded, whatever the level says.
+                { exists: { field: "attributes.exception.type" } },
+                { exists: { field: "exception.type" } },
+              ],
+            },
+          },
           _source: [
             "@timestamp",
+            // ECS
             "service.name",
             "service.environment",
             "service.version",
@@ -93,10 +188,25 @@ export function elasticsearchSource(env: Env): LogSource {
             "error.type",
             "error.message",
             "error.stack_trace",
-            // ECS correlation fields. transaction.id is the fallback for
-            // sources that tag the request but not the distributed trace.
             "trace.id",
+            // transaction.id is the fallback for sources that tag the request
+            // but not the distributed trace.
             "transaction.id",
+            // OTLP-native
+            "severity_text",
+            "severity_number",
+            "resource.attributes.service.name",
+            "resource.attributes.service.version",
+            "resource.attributes.deployment.environment",
+            "attributes.exception.type",
+            "attributes.exception.message",
+            "attributes.exception.stacktrace",
+            "exception.type",
+            "exception.message",
+            "exception.stacktrace",
+            "body.text",
+            "message",
+            "trace_id",
           ],
         }),
       });
@@ -107,22 +217,7 @@ export function elasticsearchSource(env: Env): LogSource {
       }
 
       const body = (await res.json()) as { hits: { hits: Array<{ _id: string; _source: any }> } };
-      const events = body.hits.hits.map((hit) => {
-        const s = hit._source;
-        return {
-          id: hit._id,
-          service: s["service.name"] ?? s.service?.name ?? "unknown",
-          environment: s["service.environment"] ?? s.service?.environment ?? "production",
-          severity: (s["log.level"] === "fatal" ? "critical" : "high") as Severity,
-          occurredAt: s["@timestamp"],
-          version: s["service.version"] ?? s.service?.version ?? "",
-          exceptionType: s["error.type"] ?? s.error?.type ?? "Error",
-          message: s["error.message"] ?? s.error?.message ?? "",
-          stackTrace: s["error.stack_trace"] ?? s.error?.stack_trace ?? "",
-          traceId:
-            s["trace.id"] ?? s.trace?.id ?? s["transaction.id"] ?? s.transaction?.id ?? null,
-        };
-      });
+      const events = body.hits.hits.map((hit) => mapDocument(hit._id, hit._source));
 
       return { events, cursor: { position: newest(events, since) } };
     },

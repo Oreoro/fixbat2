@@ -183,7 +183,7 @@ than failing quietly.
 | `SLACK_BOT_TOKEN` | briefs stored, not posted | briefs posted to each service's channel |
 | `SLACK_SIGNING_SECRET` | buttons return 503 | buttons work |
 | `GITHUB_TOKEN` | plausible fake commit history | real commits, real issues |
-| `ELASTICSEARCH_URL` + `_API_KEY` | bundled sample errors | your live logs |
+| `ELASTICSEARCH_URL` + `_API_KEY` | bundled sample errors | your live logs, ECS or OTLP-native |
 | `SENTRY_TOKEN` + `_ORG` + `_PROJECT` | bundled sample errors | Sentry, which also tells us which frames are yours |
 | `DATADOG_API_KEY` + `_APP_KEY` | bundled sample errors | Datadog error logs |
 | `INGEST_TOKEN` | nothing to push to | `POST /ingest` accepts errors you push |
@@ -323,6 +323,24 @@ does not grow without bound. `INGEST_TOKEN` is deliberately **not** the admin
 token: it is distributed to every application that reports errors, so it must
 not also grant administration. Events are buffered and drained on the next run,
 so nothing at the edge calls the model or costs money.
+
+### Two shapes in `logs-*`
+
+A deployment can hold both, and they look nothing alike.
+
+**ECS** — Beats, Elastic Agent, the Elasticsearch exporter: `log.level`,
+`error.type`, `error.stack_trace`, `service.name`, `trace.id`.
+
+**OTLP-native** — anything arriving at Elastic's OTLP endpoint, which is how
+the [OpenTelemetry demo](https://github.com/elastic/opentelemetry-demo) ships
+and increasingly how everyone does: `severity_text` and `severity_number`, the
+exception under OpenTelemetry's semantic conventions
+(`attributes.exception.type`, `.message`, `.stacktrace`), the service nested
+under `resource.attributes`, and `trace_id` rather than `trace.id`.
+
+Both are read. Matching only ECS finds nothing in an OTel deployment, and finds
+it *silently* — an empty result is indistinguishable from a quiet hour, which
+is the failure this product exists to stop making.
 
 ### Who writes the brief
 
@@ -510,7 +528,7 @@ npm run dev      # in one shell
 npm test         # in another
 ```
 
-333 checks over twelve suites, all against a real server.
+347 checks over thirteen suites, all against a real server.
 
 `test/audit.py` walks the whole product from an empty deployment — claim, demo,
 triage, dedupe, Slack, resolution, guardrails, security headers, audit trail.
@@ -531,6 +549,8 @@ took the first readable line would fail all seven.
 issue tracker is chosen independently of the code host.
 `test/api.py` is the API contract: every route, the credentials it demands, the
 codes it returns and how it answers something malformed.
+`test/otel.py` reads both document shapes out of Elasticsearch — ECS and
+OTLP-native — against a stand-in cluster serving each.
 `test/commands.py` covers the Slack command surface — that an unsigned request
 is refused and that the admin gate fails closed.
 `test/slack.py` asserts against the blocks Slack actually receives — the link
