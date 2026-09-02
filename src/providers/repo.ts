@@ -17,6 +17,13 @@ export interface RepoSource {
   readSource(repo: string, path: string, line: number, radius: number): Promise<SourceExcerpt | null>;
   /** What one commit changed in one file. Null when unavailable. */
   commitDiff(repo: string, sha: string, path: string): Promise<string | null>;
+  /**
+   * A browsable link to a line of source. Both the Slack message and the
+   * incident page used to build this as a github.com URL regardless of host,
+   * so every GitLab and Azure DevOps client got a dead link on the one element
+   * that tells them where to look.
+   */
+  fileUrl(repo: string, path: string, line: number | null): string;
 }
 
 /** Map a runtime path like /app/src/checkout/pricing.ts to a repo-relative one. */
@@ -48,6 +55,10 @@ export function githubRepo(env: Env): RepoSource {
 
   return {
     name: "github",
+
+    fileUrl(repo, path, line) {
+      return `https://github.com/${repo}/blob/HEAD/${path}${line ? `#L${line}` : ""}`;
+    },
 
     async recentCommitsTouching(repo, path, limit) {
       const url = new URL(`https://api.github.com/repos/${repo}/commits`);
@@ -104,6 +115,10 @@ export function gitlabRepo(env: Env): RepoSource {
   return {
     name: "gitlab",
 
+    fileUrl(repo, path, line) {
+      return `${host}/${repo}/-/blob/HEAD/${path}${line ? `#L${line}` : ""}`;
+    },
+
     async recentCommitsTouching(repo, path, limit) {
       const url = new URL(`${host}/api/v4/projects/${id(repo)}/repository/commits`);
       url.searchParams.set("path", path);
@@ -158,6 +173,15 @@ export function azureDevOpsRepo(env: Env): RepoSource {
 
   return {
     name: "azuredevops",
+
+    fileUrl(repo, path, line) {
+      const url = new URL(
+        `https://dev.azure.com/${org}/${encodeURIComponent(project)}/_git/${encodeURIComponent(repo)}`,
+      );
+      url.searchParams.set("path", `/${path}`);
+      if (line) url.searchParams.set("line", String(line));
+      return url.toString();
+    },
 
     async recentCommitsTouching(repo, path, limit) {
       const url = new URL(`${base}/${encodeURIComponent(repo)}/commits`);
@@ -229,6 +253,11 @@ export function simulatedRepo(_env: Env): RepoSource {
 
   return {
     name: "simulated",
+
+    // The demo's repos are fabricated, so this link is illustrative either way.
+    fileUrl(repo, path, line) {
+      return `https://github.com/${repo}/blob/HEAD/${path}${line ? `#L${line}` : ""}`;
+    },
 
     async recentCommitsTouching(repo, path, limit) {
       const messages = subjects[path] ?? [`Refactor ${path.split("/").pop()}`];

@@ -11,7 +11,13 @@ export interface RenderInput {
   incident: IncidentRow;
   brief: BriefRow;
   repo: string;
+  /** Built by the code host, because only it knows how its URLs are shaped. */
+  fileHref?: string | null;
+  /** This deployment's incident page, so the message can lead back to it. */
+  incidentUrl?: string | null;
   ticketUrl?: string | null;
+  /** Which tracker filed it — "GitHub" is not always the answer. */
+  ticketProvider?: string | null;
   disposition?: string | null;
 }
 
@@ -42,6 +48,8 @@ export function renderBrief(input: RenderInput): any[] {
           incident.version || null,
           `${incident.occurrences} ${incident.occurrences === 1 ? "occurrence" : "occurrences"}`,
           `first seen ${relativeTime(incident.first_seen)}`,
+          // The way across to whatever else happened in that request.
+          incident.trace_id ? `trace \`${incident.trace_id}\`` : null,
         ]
           .filter(Boolean)
           .join("  ·  "),
@@ -60,7 +68,7 @@ export function renderBrief(input: RenderInput): any[] {
 
   if (brief.cited_file) {
     const location = brief.cited_line ? `${brief.cited_file}:${brief.cited_line}` : brief.cited_file;
-    const href = fileUrl(repo, brief.cited_file, brief.cited_line);
+    const href = input.fileHref ?? fileUrl(repo, brief.cited_file, brief.cited_line);
     blocks.push({
       type: "section",
       text: { type: "mrkdwn", text: `*Where*\n<${href}|\`${location}\`>` },
@@ -95,6 +103,23 @@ export function renderBrief(input: RenderInput): any[] {
     elements: [{ type: "mrkdwn", text: footer(input, commits.length) }],
   });
 
+  /**
+   * Recording whether the cause was right happens on the incident page, and
+   * that is the product's precision metric. Without a link there was no route
+   * to it from the surface people actually read.
+   */
+  if (input.incidentUrl) {
+    blocks.push({
+      type: "context",
+      elements: [
+        {
+          type: "mrkdwn",
+          text: `<${input.incidentUrl}|Open in FixBat> — full trace, timeline, and whether this cause was right`,
+        },
+      ],
+    });
+  }
+
   return blocks;
 }
 
@@ -104,7 +129,12 @@ function actionsBlock(input: RenderInput): any {
   if (ticketUrl) {
     return {
       type: "context",
-      elements: [{ type: "mrkdwn", text: `Issue filed — <${ticketUrl}|view on GitHub>` }],
+      elements: [
+        {
+          type: "mrkdwn",
+          text: `Issue filed — <${ticketUrl}|view in ${input.ticketProvider ?? "the tracker"}>`,
+        },
+      ],
     };
   }
 
@@ -151,7 +181,10 @@ function footer(input: RenderInput, commitCount: number): string {
   return parts.join("  ·  ");
 }
 
-/** Plain-text fallback shown in notifications and by clients that cannot render blocks. */
+/**
+ * Fallback for a host we have no URL shape for. Only reached when a caller
+ * does not supply fileHref.
+ */
 export function fallbackText(incident: IncidentRow, brief: BriefRow): string {
   return `${incident.service} — ${incident.exception_type}: ${brief.summary}`;
 }
@@ -160,6 +193,8 @@ function fileUrl(repo: string, path: string, line: number | null): string {
   const anchor = line ? `#L${line}` : "";
   return `https://github.com/${repo}/blob/HEAD/${path}${anchor}`;
 }
+
+/** Plain-text fallback shown in notifications and by clients that cannot render blocks. */
 
 export function relativeTime(iso: string): string {
   const then = Date.parse(iso);

@@ -444,6 +444,8 @@ export function IncidentsPage({
 /* ---------------------------------------------------------------- detail */
 
 export interface DetailInput {
+  /** Built by the code host — GitHub, GitLab and Azure DevOps shape these differently. */
+  fileHref?: string | null;
   incident: IncidentRow;
   brief: BriefRow | null;
   service: ServiceRow | null;
@@ -513,7 +515,7 @@ export function IncidentPage(d: DetailInput) {
                         [
                           "Where",
                           <Link
-                            href={`https://github.com/${service?.repo ?? ""}/blob/HEAD/${brief.cited_file}${brief.cited_line ? `#L${brief.cited_line}` : ""}`}
+                            href={d.fileHref ?? "#"}
                             className="font-mono text-xs"
                           >
                             {brief.cited_file}

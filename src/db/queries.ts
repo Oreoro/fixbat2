@@ -239,6 +239,7 @@ export async function updateSettings(
     daily_brief_limit?: number;
     trace_url_template?: string;
     log_source?: string;
+    base_url?: string;
   },
 ): Promise<void> {
   const current = await getSettings(db);
@@ -246,7 +247,7 @@ export async function updateSettings(
     .prepare(
       `UPDATE settings SET kill_switch = ?1, kill_switch_reason = ?2,
               daily_brief_limit = ?3, trace_url_template = ?5, log_source = ?6,
-              updated_at = ?4 WHERE id = 1`,
+              base_url = ?7, updated_at = ?4 WHERE id = 1`,
     )
     .bind(
       patch.kill_switch === undefined ? current.kill_switch : patch.kill_switch ? 1 : 0,
@@ -255,6 +256,7 @@ export async function updateSettings(
       now(),
       patch.trace_url_template ?? current.trace_url_template,
       patch.log_source ?? current.log_source,
+      patch.base_url ?? current.base_url,
     )
     .run();
 }
@@ -438,6 +440,7 @@ export async function listIncidents(db: D1Database, limit = 50): Promise<Inciden
  */
 export interface IncidentExtras {
   ticket_url: string | null;
+  ticket_provider: string | null;
   disposition: string | null;
 }
 
@@ -448,6 +451,7 @@ export async function getIncidentExtras(
   const row = await db
     .prepare(
       `SELECT t.url AS ticket_url,
+              t.provider AS ticket_provider,
               (SELECT kind FROM dispositions d
                 WHERE d.incident_id = ?1
                 ORDER BY d.created_at DESC LIMIT 1) AS disposition
@@ -457,7 +461,7 @@ export async function getIncidentExtras(
     )
     .bind(incidentId)
     .first<IncidentExtras>();
-  return row ?? { ticket_url: null, disposition: null };
+  return row ?? { ticket_url: null, ticket_provider: null, disposition: null };
 }
 
 /**

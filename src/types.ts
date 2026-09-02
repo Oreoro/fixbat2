@@ -163,6 +163,8 @@ export interface SettingsRow {
   trace_url_template: string;
   /** 'auto' or an explicit source name. See chooseLogSource in index.tsx. */
   log_source: string;
+  /** This deployment's own origin, so posted briefs can link back to it. */
+  base_url: string;
   updated_at: string;
 }
 

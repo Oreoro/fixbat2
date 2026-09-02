@@ -360,12 +360,13 @@ app.get("/incident/:id", viewer, async (c) => {
   const incident = await db.getIncident(c.env.DB, id);
   if (!incident) return c.text("not found", 404);
 
-  const [brief, service, events, settings, extras] = await Promise.all([
+  const [brief, service, events, settings, extras, d] = await Promise.all([
     db.getBrief(c.env.DB, id),
     db.getService(c.env.DB, incident.service),
     db.listEvents(c.env.DB, id),
     settingsOf(c),
     db.getIncidentExtras(c.env.DB, id),
+    depsOf(c),
   ]);
 
   return c.html(
@@ -378,6 +379,11 @@ app.get("/incident/:id", viewer, async (c) => {
         settings={settings}
         ticketUrl={extras.ticket_url}
         disposition={extras.disposition}
+        fileHref={
+          brief?.cited_file && service
+            ? d.repo.fileUrl(service.repo, brief.cited_file, brief.cited_line)
+            : null
+        }
         error={c.req.query("error") ?? undefined}
         who={await whoIs(c)}
         cssHref={CSS_HREF}
@@ -427,8 +433,27 @@ app.get("/preview/:id", viewer, async (c) => {
   const brief = incident ? await db.getBrief(c.env.DB, id) : null;
   if (!incident || !brief) return c.json({ error: "not found" }, 404);
 
-  const service = await db.getService(c.env.DB, incident.service);
-  const blocks = renderBrief({ incident, brief, repo: service?.repo ?? "" });
+  // The point of this route is to see exactly what Slack gets, so it has to
+  // include the ticket and dismissal state that changes how the message renders.
+  const [service, d, settings, extras] = await Promise.all([
+    db.getService(c.env.DB, incident.service),
+    depsOf(c),
+    settingsOf(c),
+    db.getIncidentExtras(c.env.DB, id),
+  ]);
+  const blocks = renderBrief({
+    incident,
+    brief,
+    repo: service?.repo ?? "",
+    fileHref:
+      brief.cited_file && service
+        ? d.repo.fileUrl(service.repo, brief.cited_file, brief.cited_line)
+        : null,
+    incidentUrl: settings.base_url ? `${settings.base_url}/incident/${id}` : null,
+    ticketUrl: extras.ticket_url,
+    ticketProvider: extras.ticket_provider,
+    disposition: extras.disposition,
+  });
   return c.json({
     blocks,
     builder: `https://app.slack.com/block-kit-builder#${encodeURIComponent(JSON.stringify({ blocks }))}`,
@@ -589,6 +614,17 @@ app.post("/setup/signout", (c) => {
 
 app.get("/setup", adminPage, async (c) => {
   const d = await depsOf(c);
+
+  /**
+   * Remember where this deployment lives. The pipeline runs from cron with no
+   * request to derive an origin from, so a brief posted to Slack could not
+   * link back to the incident — which is where correctness is recorded.
+   * Written only when it changes, so this stays a read path.
+   */
+  const current = await settingsOf(c);
+  if (current.base_url !== originOf(c)) {
+    await db.updateSettings(c.env.DB, { base_url: originOf(c) });
+  }
   const [services, settings, incidents] = await Promise.all([
     db.listServices(c.env.DB),
     settingsOf(c),

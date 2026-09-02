@@ -446,7 +446,7 @@ npm run dev      # in one shell
 npm test         # in another
 ```
 
-273 checks over nine suites, all against a real server — no mocks.
+285 checks over ten suites, all against a real server — no mocks.
 
 `test/audit.py` walks the whole product from an empty deployment — claim, demo,
 triage, dedupe, Slack, resolution, guardrails, security headers, audit trail.
@@ -467,6 +467,9 @@ took the first readable line would fail all seven.
 issue tracker is chosen independently of the code host.
 `test/api.py` is the API contract: every route, the credentials it demands, the
 codes it returns and how it answers something malformed.
+`test/slack.py` asserts against the blocks Slack actually receives — the link
+back to the incident, the trace id, and that file and ticket links follow the
+client's own host rather than assuming GitHub.
 
 `npm run dev` passes `--test-scheduled`, which is what lets the suite trigger
 the cron on demand at `/__scheduled`. The tests read the database name from

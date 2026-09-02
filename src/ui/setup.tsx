@@ -291,7 +291,12 @@ export function SetupPage({
 
           <form method="post" action="/setup/services" className="grid gap-3 sm:grid-cols-2">
             <Input name="name" label="Service name" placeholder="checkout-service" required />
-            <Input name="repo" label="GitHub repo" placeholder="acme/checkout" required />
+            <Input
+                name="repo"
+                label="Repository"
+                placeholder="acme/checkout"
+                required
+              />
             <Input name="slack_channel" label="Slack channel" placeholder="#incidents" required />
             <Input name="team" label="Owning team" placeholder="Checkout" />
             <div className="sm:col-span-2">

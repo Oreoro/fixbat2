@@ -6,7 +6,7 @@ import { toRepoPath, type RepoSource } from "./providers/repo";
 import type { TicketProvider } from "./providers/tickets";
 import { fallbackText, renderBrief } from "./slack/blocks";
 import type { SlackClient } from "./slack/client";
-import type { Commit, CursorState, Env, Evidence, LogEvent } from "./types";
+import type { Commit, CursorState, Env, Evidence, LogEvent, SettingsRow } from "./types";
 
 export interface Deps {
   env: Env;
@@ -88,7 +88,7 @@ export async function run(deps: Deps): Promise<RunSummary> {
 
   for (const event of events) {
     try {
-      const outcome = await handle(deps, event, settings.daily_brief_limit);
+      const outcome = await handle(deps, event, settings);
       if (outcome.kind === "deduped") summary.deduped++;
       else if (outcome.kind === "unmapped") summary.unmapped++;
       else if (outcome.kind === "capped") summary.capped++;
@@ -115,7 +115,7 @@ type Outcome = {
   incident?: { id: string; service: string; status: string; occurrences: number };
 };
 
-async function handle(deps: Deps, event: LogEvent, dailyLimit: number): Promise<Outcome> {
+async function handle(deps: Deps, event: LogEvent, settings: SettingsRow): Promise<Outcome> {
   const { env, repo, diagnoser, slack, logs } = deps;
 
   // Gate 1 — a service with no registry entry has no repo to correlate
@@ -172,7 +172,7 @@ async function handle(deps: Deps, event: LogEvent, dailyLimit: number): Promise<
    * merely needs delivering is not charged, or a Slack outage could exhaust
    * the cap re-posting work already paid for.
    */
-  if (!existing && (await db.briefsToday(env.DB)) >= dailyLimit) {
+  if (!existing && (await db.briefsToday(env.DB)) >= settings.daily_brief_limit) {
     await db.logEvent(env.DB, incident.id, "capped", "daily brief limit reached");
     return { kind: "capped", incident: brief(incident) };
   }
@@ -242,7 +242,13 @@ async function handle(deps: Deps, event: LogEvent, dailyLimit: number): Promise<
   // exactly here — between the brief being written and anyone seeing it.
   const row = await db.getBrief(env.DB, incident.id);
   if (row) {
-    const blocks = renderBrief({ incident, brief: row, repo: service.repo });
+    const blocks = renderBrief({
+      incident,
+      brief: row,
+      repo: service.repo,
+      fileHref: row.cited_file ? repo.fileUrl(service.repo, row.cited_file, row.cited_line) : null,
+      incidentUrl: incidentUrl(settings.base_url, incident.id),
+    });
     const posted = await slack.post(
       service.slack_channel,
       fallbackText(incident, row),
@@ -253,6 +259,11 @@ async function handle(deps: Deps, event: LogEvent, dailyLimit: number): Promise<
   }
 
   return { kind: "briefed", incident: { ...brief(incident), status: "posted" } };
+}
+
+/** Null when the deployment has not yet recorded its own address. */
+function incidentUrl(base: string, id: string): string | null {
+  return base ? `${base.replace(/\/+$/, "")}/incident/${id}` : null;
 }
 
 function brief(incident: { id: string; service: string; status: string; occurrences: number }) {
@@ -273,13 +284,22 @@ export async function refreshPostedMessage(deps: Deps, incidentId: string): Prom
   if (!incident || !row || !incident.slack_channel || !incident.slack_ts) return;
 
   const service = await db.getService(env.DB, incident.service);
-  const current = await db.getIncidentExtras(env.DB, incidentId);
+  const [current, settings] = await Promise.all([
+    db.getIncidentExtras(env.DB, incidentId),
+    db.getSettings(env.DB),
+  ]);
 
   const blocks = renderBrief({
     incident,
     brief: row,
     repo: service?.repo ?? "",
+    fileHref:
+      row.cited_file && service
+        ? deps.repo.fileUrl(service.repo, row.cited_file, row.cited_line)
+        : null,
+    incidentUrl: incidentUrl(settings.base_url, incidentId),
     ticketUrl: current.ticket_url,
+    ticketProvider: current.ticket_provider,
     disposition: current.disposition,
   });
 
