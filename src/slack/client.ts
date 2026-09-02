@@ -57,6 +57,23 @@ export function slackClient(env: Env): SlackClient {
     return json;
   };
 
+  /** Slack's simpler read methods only accept a form-encoded body. */
+  const callForm = async (method: string, params: Record<string, string>): Promise<any> => {
+    const res = await callExternal(`https://slack.com/api/${method}`, {
+      what: `slack ${method}`,
+      retry: false,
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded; charset=utf-8",
+        authorization: `Bearer ${env.SLACK_BOT_TOKEN}`,
+      },
+      body: new URLSearchParams(params).toString(),
+    });
+    const json = (await res.json()) as { ok: boolean; error?: string; [k: string]: any };
+    if (!json.ok) throw new Error(`slack ${method}: ${json.error ?? "unknown error"}`);
+    return json;
+  };
+
   return {
     live: true,
     async post(channel, text, blocks) {
@@ -74,7 +91,10 @@ export function slackClient(env: Env): SlackClient {
      */
     async isWorkspaceAdmin(userId) {
       try {
-        const json = await call("users.info", { user: userId });
+        // Form-encoded, not JSON. users.info silently ignores a JSON body and
+        // answers `user_not_found`, which this method would read as "not an
+        // admin" — failing closed for everyone, with no error to notice.
+        const json = await callForm("users.info", { user: userId });
         const u = json.user ?? {};
         return Boolean(u.is_admin || u.is_owner || u.is_primary_owner);
       } catch {
