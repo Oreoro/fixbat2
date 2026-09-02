@@ -437,7 +437,7 @@ npm run dev      # in one shell
 npm test         # in another
 ```
 
-267 checks over nine suites, all against a real server — no mocks.
+273 checks over nine suites, all against a real server — no mocks.
 
 `test/audit.py` walks the whole product from an empty deployment — claim, demo,
 triage, dedupe, Slack, resolution, guardrails, security headers, audit trail.

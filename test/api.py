@@ -184,6 +184,19 @@ chk("every check names its role",
 chk("a summary is returned", len(r["summary"]) > 0, True)
 chk("it is audited", d1("SELECT COUNT(*) n FROM events WHERE kind='connections_verified'")[0]["n"] > 0, True)
 
+# A wrong credential must come back as one readable line, not a raw JSON body:
+# this detail is rendered into a banner. Makes a real call to the provider.
+call("/setup/secrets","POST",form={"name":"GITHUB_TOKEN","value":"ghp_not_a_real_token"},jar=SESSION)
+r = json.loads(call("/admin/verify","POST",token=TOKEN)[1])
+gh = next(c for c in r["checks"] if c["name"] == "GitHub")
+chk("a wrong credential is reported as failing", gh["ok"], False)
+chk("...with a single-line detail", "\n" not in gh["detail"], True)
+chk("...kept short enough for a banner", len(gh["detail"]) < 160, True)
+chk("...naming the provider's own reason", "credential" in gh["detail"].lower(), True)
+chk("the summary counts the failure", "1 of" in r["summary"], True)
+chk("overall ok is false", r["ok"], False)
+call("/setup/secrets/delete","POST",form={"name":"GITHUB_TOKEN"},jar=SESSION)
+
 
 print("\n" + "=" * 72)
 print(f"  {ok} passed, {fail} failed")

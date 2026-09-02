@@ -459,6 +459,9 @@ export interface DetailInput {
 
 export function IncidentPage(d: DetailInput) {
   const { incident, brief, service } = d;
+  // Which matcher read the trace. If this says something unexpected, the cited
+  // file and line are suspect.
+  const runtime = detectLanguage(incident.stack_trace);
   const commits: Commit[] = brief ? safeParse(brief.cited_commits) : [];
   const questions: string[] = brief ? safeParse(brief.open_questions) : [];
 
@@ -664,9 +667,7 @@ export function IncidentPage(d: DetailInput) {
                 ["Environment", incident.environment],
                 // Which matcher read the trace. Worth showing: if this says
                 // something unexpected, the cited file and line are suspect.
-                ...(detectLanguage(incident.stack_trace)
-                  ? ([["Runtime", detectLanguage(incident.stack_trace)]] as Array<[string, ReactNode]>)
-                  : []),
+                ...(runtime ? ([["Runtime", runtime]] as Array<[string, ReactNode]>) : []),
                 ["Version", incident.version || "unknown"],
                 ["Status", incident.status],
                 ["First seen", <Time iso={incident.first_seen}>{relativeTime(incident.first_seen)}</Time>],

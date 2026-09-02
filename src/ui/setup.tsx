@@ -24,6 +24,8 @@ import { KeyValue, PageHeader, Panel, PanelBody, Shell } from "./shell";
 export interface ProviderState {
   logs: string;
   repo: string;
+  /** Where briefs are filed. Chosen independently of the code host. */
+  tickets: string;
   diagnoser: string;
   slack: string;
 }
@@ -97,6 +99,21 @@ export function SignInPage({
 }
 
 /** Everything a new client needs, in order, without touching a terminal. */
+/**
+ * Thirty credentials in one flat list is a wall, not a form. Grouping them by
+ * the role they fill matches how a client actually adopts the product — one
+ * capability at a time — and makes it obvious that each group is optional.
+ */
+const CREDENTIAL_GROUPS: Array<{ key: string; title: string; blurb: string }> = [
+  { key: "briefs", title: "Diagnosis", blurb: "Who writes the brief. Without a key, briefs are canned." },
+  { key: "logs", title: "Where errors come from", blurb: "Pick one. Anything unset means the bundled samples." },
+  { key: "repo", title: "Your code", blurb: "Blame, and the real source behind the failing line. One host." },
+  { key: "tickets", title: "Where briefs become tickets", blurb: "Optional — otherwise briefs file to your code host." },
+  { key: "slack", title: "Delivery", blurb: "Where briefs are posted, and what makes the buttons work." },
+];
+
+const GROUP_ORDER = new Map(CREDENTIAL_GROUPS.map((g, i) => [g.key, i]));
+
 export function SetupPage({
   cssHref,
   jsHref,
@@ -133,6 +150,9 @@ export function SetupPage({
   error?: string;
 }) {
   const simulated = Object.entries(providers).filter(([, v]) => v === "simulated" || v === "fixture");
+  const orderedSecrets = [...secrets].sort(
+    (a, b) => (GROUP_ORDER.get(a.unlocks) ?? 99) - (GROUP_ORDER.get(b.unlocks) ?? 99),
+  );
   const done = {
     services: services.length > 0,
     ingested: incidentCount > 0,
@@ -311,8 +331,22 @@ export function SetupPage({
           </div>
 
           <div className="flex flex-col gap-4">
-            {secrets.map((s) => (
-              <div key={s.name} className="border-t border-kumo-hairline pt-4 first:border-0 first:pt-0">
+            {orderedSecrets.map((s, i) => {
+              const startsGroup = i === 0 || orderedSecrets[i - 1].unlocks !== s.unlocks;
+              const group = CREDENTIAL_GROUPS.find((g) => g.key === s.unlocks);
+              return (
+              <div
+                key={s.name}
+                className={startsGroup ? "pt-1" : "border-t border-kumo-hairline pt-4"}
+              >
+                {startsGroup && group ? (
+                  <div className="mb-3">
+                    <Text size="sm"><strong>{group.title}</strong></Text>
+                    <div className="mt-0.5">
+                      <Text variant="secondary" size="xs">{group.blurb}</Text>
+                    </div>
+                  </div>
+                ) : null}
                 <div className="mb-1 flex flex-wrap items-center gap-2">
                   <Text size="sm">{s.label}</Text>
                   {s.fromEnv ? (
@@ -374,7 +408,21 @@ export function SetupPage({
                   </div>
                 )}
               </div>
-            ))}
+              );
+            })}
+          </div>
+
+          <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-kumo-hairline pt-4">
+            <form method="post" action="/setup/verify">
+              <Button type="submit" variant="secondary">Verify connections</Button>
+            </form>
+            <div className="max-w-[62ch]">
+              <Text variant="secondary" size="xs">
+                Asks each configured provider who we are — Slack&rsquo;s auth test, GitHub&rsquo;s
+                user endpoint, Jira&rsquo;s myself. A wrong key otherwise looks exactly like an
+                unconfigured one: the provider quietly falls back to simulated.
+              </Text>
+            </div>
           </div>
 
           {providers.slack === "live" ? null : (

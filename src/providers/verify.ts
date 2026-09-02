@@ -34,14 +34,14 @@ async function probe(
   try {
     const res = await run();
     if (!res.ok) {
-      const body = (await res.text().catch(() => "")).slice(0, 120);
       return {
         role,
         name,
         configured: true,
         ok: false,
-        // The provider's own words beat anything we would invent.
-        detail: `${res.status}${body ? `: ${body}` : ""}`,
+        // The provider's own words beat anything we would invent — but they
+        // arrive as a raw JSON body, which reads badly in a one-line banner.
+        detail: `${res.status}${(await readableError(res)) ?? ""}`,
       };
     }
     return { role, name, configured: true, ok: true, detail: await describe(res) };
@@ -51,6 +51,29 @@ async function probe(
 }
 
 const json = async (res: Response) => (await res.json().catch(() => ({}))) as any;
+
+/**
+ * Providers put the useful sentence in different places and wrap it in JSON.
+ * Pull it out where we can, and otherwise collapse the body onto one line.
+ */
+async function readableError(res: Response): Promise<string | null> {
+  const body = (await res.text().catch(() => "")).trim();
+  if (!body) return null;
+  try {
+    const parsed = JSON.parse(body);
+    const message =
+      parsed?.message ??
+      parsed?.error?.message ??
+      parsed?.error ??
+      parsed?.detail ??
+      parsed?.errors?.[0]?.message ??
+      parsed?.errorMessages?.[0];
+    if (typeof message === "string" && message) return `: ${message.slice(0, 120)}`;
+  } catch {
+    // not JSON; fall through to the raw body
+  }
+  return `: ${body.replace(/\s+/g, " ").slice(0, 120)}`;
+}
 
 export async function verifyAll(env: Env): Promise<Check[]> {
   const checks: Array<Promise<Check>> = [];

@@ -634,6 +634,7 @@ app.get("/setup", adminPage, async (c) => {
         providers={{
           logs: d.logs.name,
           repo: d.repo.name,
+          tickets: d.tickets.name,
           diagnoser: d.diagnoser.name,
           slack: d.slack.live ? "live" : "simulated",
         }}
